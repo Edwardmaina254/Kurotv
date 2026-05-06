@@ -1,0 +1,16 @@
+{
+  "currentPage": 1,
+  "hasNextPage": false,
+  "results": [
+    {
+      "id": 209867,
+      "title": "Frieren: Beyond Journey's End",
+      "image": "https://image.tmdb.org/t/p/original/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+      "type": "TV Series",
+      "rating": 8.8,
+      "releaseDate": "2023"
+    }
+  ],
+  "totalResults": 1,
+  "totalPages": 1
+}

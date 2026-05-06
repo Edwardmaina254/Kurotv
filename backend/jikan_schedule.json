@@ -1,0 +1,115 @@
+{
+  "mal_id": 54871,
+  "url": "https://myanimelist.net/anime/54871/Shin_Nippon_History",
+  "images": {
+    "jpg": {
+      "image_url": "https://myanimelist.net/images/anime/1433/134811.jpg",
+      "small_image_url": "https://myanimelist.net/images/anime/1433/134811t.jpg",
+      "large_image_url": "https://myanimelist.net/images/anime/1433/134811l.jpg"
+    },
+    "webp": {
+      "image_url": "https://myanimelist.net/images/anime/1433/134811.webp",
+      "small_image_url": "https://myanimelist.net/images/anime/1433/134811t.webp",
+      "large_image_url": "https://myanimelist.net/images/anime/1433/134811l.webp"
+    }
+  },
+  "trailer": {
+    "youtube_id": null,
+    "url": null,
+    "embed_url": null,
+    "images": {
+      "image_url": null,
+      "small_image_url": null,
+      "medium_image_url": null,
+      "large_image_url": null,
+      "maximum_image_url": null
+    }
+  },
+  "approved": true,
+  "titles": [
+    {
+      "type": "Default",
+      "title": "Shin Nippon History"
+    },
+    {
+      "type": "Synonym",
+      "title": "Shin Nippon History: Minna ga Shiranai"
+    },
+    {
+      "type": "Synonym",
+      "title": "Atarashii Nihon no Rekishi."
+    },
+    {
+      "type": "Japanese",
+      "title": "新ニッポンヒストリー"
+    }
+  ],
+  "title": "Shin Nippon History",
+  "title_english": null,
+  "title_japanese": "新ニッポンヒストリー",
+  "title_synonyms": [
+    "Shin Nippon History: Minna ga Shiranai",
+    "Atarashii Nihon no Rekishi."
+  ],
+  "type": "TV",
+  "source": "Original",
+  "episodes": null,
+  "status": "Currently Airing",
+  "airing": true,
+  "aired": {
+    "from": "2020-01-06T00:00:00+00:00",
+    "to": null,
+    "prop": {
+      "from": {
+        "day": 6,
+        "month": 1,
+        "year": 2020
+      },
+      "to": {
+        "day": null,
+        "month": null,
+        "year": null
+      }
+    },
+    "string": "Jan 6, 2020 to ?"
+  },
+  "duration": "23 min",
+  "rating": "G - All Ages",
+  "score": null,
+  "scored_by": null,
+  "rank": 20378,
+  "popularity": 15764,
+  "members": 878,
+  "favorites": 0,
+  "synopsis": null,
+  "background": "",
+  "season": "winter",
+  "year": 2020,
+  "broadcast": {
+    "day": "Mondays",
+    "time": "01:00",
+    "timezone": "Asia/Tokyo",
+    "string": "Mondays at 01:00 (JST)"
+  },
+  "producers": [],
+  "licensors": [],
+  "studios": [],
+  "genres": [
+    {
+      "mal_id": 4,
+      "type": "anime",
+      "name": "Comedy",
+      "url": "https://myanimelist.net/anime/genre/4/Comedy"
+    }
+  ],
+  "explicit_genres": [],
+  "themes": [
+    {
+      "mal_id": 13,
+      "type": "anime",
+      "name": "Historical",
+      "url": "https://myanimelist.net/anime/genre/13/Historical"
+    }
+  ],
+  "demographics": []
+}

@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* Defining KuroTV Blue & Black Theme */
+:root {
+  --kuro-bg: #040404;
+  --kuro-card: #0a0a0a;
+  --kuro-blue: #3b82f6; /* Electric Blue */
+  --kuro-blue-hover: #2563eb;
+}
+
+body {
+  margin: 0;
+  background-color: var(--kuro-bg);
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom Scrollbar for that premium feel */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--kuro-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: #222;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--kuro-blue);
+}
