@@ -41,25 +41,12 @@ app.use(helmet({
 }));
 
 // 2. CORS LOCKDOWN: Whitelist only your actual frontend origins
-const allowedOrigins = [
-  'http://localhost:5173',                      // Local dev
-  'https://your-frontend-link.vercel.app',      // Update before deploying
-  'https://your-custom-domain.com'              // Update before deploying
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow no-origin requests (mobile apps, curl) + whitelisted origins
-    // In non-production all origins are allowed for easier local dev
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('❌ Security Check: CORS blocked this origin.'));
-    }
-  },
-  methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true
-}));
+const corsOptions = {
+    origin: 'https://kurotv-production.up.railway.app',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
 
 // 3. RATE LIMITING: Prevents bot spam — 150 requests per 15 min per IP
 const limiter = rateLimit({
