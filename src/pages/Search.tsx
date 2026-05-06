@@ -98,7 +98,7 @@ export default function Search() {
         const fetchSearchResults = async () => {
             setLoading(true);
             try {
-                let url = `http://127.0.0.1:3005/anime/zoro/search?page=${page}&sort=${sort}`;
+                let url = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro/search?page=${page}&sort=${sort}`;
                 if (query) url += `&q=${encodeURIComponent(query)}`;
                 if (genre) url += `&genres=${encodeURIComponent(genre)}`;
                 if (format) url += `&format=${encodeURIComponent(format)}`;
