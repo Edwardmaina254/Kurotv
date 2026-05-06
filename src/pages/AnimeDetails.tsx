@@ -1,15 +1,14 @@
 // src/pages/AnimeDetails.tsx
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { type AnimeDetails as AnimeDetailsType, type Episode } from '../services/consumet';
 import {
     Bookmark, ArrowLeft, Play, Pause, Loader2, Star,
     Maximize, Minimize, Volume2, VolumeX, Settings,
-    RotateCcw, RotateCw, FastForward, Check
+    RotateCcw, RotateCw, FastForward, Check, ChevronRight
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { supabase } from '../lib/supabase';
-import { useLocation } from 'react-router-dom'; // Add useLocation
 
 interface Relation {
     id: string | number;
@@ -35,7 +34,7 @@ const formatTime = (time: number) => {
 
 export default function AnimeDetails() {
     const { id } = useParams<{ id: string }>();
-    const location = useLocation(); // Initialize location
+    const location = useLocation();
     const navigate = useNavigate();
 
     const [anime, setAnime] = useState<ExtendedAnimeDetails | null>(null);
@@ -45,10 +44,8 @@ export default function AnimeDetails() {
     const [episodesLoading, setEpisodesLoading] = useState(true);
     const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
 
-    // LIVE STATE CHECK: Forces React to paint the button green!
     const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
 
-    // ⚡ NEW: User & Watchlist State
     const [user, setUser] = useState<any>(null);
     const [isInWatchlist, setIsInWatchlist] = useState(false);
     const [watchlistLoading, setWatchlistLoading] = useState(false);
@@ -56,10 +53,8 @@ export default function AnimeDetails() {
     const [streamData, setStreamData] = useState<{ url: string; isIframe: boolean; isM3U8?: boolean } | null>(null);
     const [isFetchingStream, setIsFetchingStream] = useState(false);
 
-    // Soft UI Error state to replace the ugly alert() popup
     const [streamError, setStreamError] = useState<string | null>(null);
 
-    // This checks the user's setting first, and defaults to 'sub' if they haven't chosen one
     const [audioMode, setAudioMode] = useState<'sub' | 'dub'>(
         (localStorage.getItem('kuro-default-audio') as 'sub' | 'dub') || 'sub'
     );
@@ -79,7 +74,10 @@ export default function AnimeDetails() {
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+
+    // ⚡ FIX: Split UI visibility and Mouse visibility
     const [showControls, setShowControls] = useState(true);
+    const [isMouseActive, setIsMouseActive] = useState(true);
     const [isBuffering, setIsBuffering] = useState(false);
 
     const controlsTimeoutRef = useRef<number | null>(null);
@@ -89,6 +87,20 @@ export default function AnimeDetails() {
     useEffect(() => {
         playerStateRef.current = { volume, currentTime, duration, isPlaying };
     }, [volume, currentTime, duration, isPlaying]);
+
+    useEffect(() => {
+        if (anime && activeEpisode) {
+            document.title = `Watch ${anime.title} Episode ${activeEpisode.number} - KuroTV`;
+        } else if (anime) {
+            document.title = `${anime.title} - KuroTV`;
+        } else {
+            document.title = 'KuroTV';
+        }
+
+        return () => {
+            document.title = 'KuroTV';
+        };
+    }, [anime, activeEpisode]);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -151,7 +163,6 @@ export default function AnimeDetails() {
         }
     };
 
-    // THE KILL SWITCH
     useEffect(() => {
         setLoading(true);
         setAnime(null);
@@ -175,9 +186,10 @@ export default function AnimeDetails() {
         const fetchDetails = async () => {
             try {
                 if (id) {
+                    const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
                     const [infoRes, epsRes, malDataRes] = await Promise.all([
-                        fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/info/${id}`).catch(() => null),
-                        fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/episodes/${id}`).catch(() => null),
+                        fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null),
+                        fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null),
                         fetch('https://graphql.anilist.co', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -200,16 +212,44 @@ export default function AnimeDetails() {
                         });
                         setWatchedEpisodes(watched);
 
-                        const queryParams = new URLSearchParams(location.search);
+                        let targetEp = null;
+                        const queryParams = new URLSearchParams(window.location.search);
                         const epFromUrl = queryParams.get('ep');
-                        if (epFromUrl) {
-                            const targetEp = epsData.find((e: Episode) => e.id.toString() === epFromUrl.toString());
-                            if (targetEp) {
-                                setActiveEpisode(targetEp);
-                                handlePlayEpisode(targetEp); // Trigger playback for the specific episode
+
+                        if (epFromUrl && epsData.length > 0) {
+                            targetEp = epsData.find((e: Episode) => e.id.toString() === epFromUrl.toString());
+                        }
+
+                        if (!targetEp && epsData.length > 0) {
+                            const { data: sessionData } = await supabase.auth.getSession();
+                            const currentUser = sessionData?.session?.user;
+                            if (currentUser) {
+                                const { data } = await supabase
+                                    .from('watch_history')
+                                    .select('episode_id')
+                                    .eq('user_id', currentUser.id)
+                                    .eq('anime_id', id.toString())
+                                    .maybeSingle();
+
+                                if (data && data.episode_id) {
+                                    targetEp = epsData.find((e: Episode) => e.id.toString() === data.episode_id.toString());
+                                }
                             }
-                        } else if (epsData.length > 0) {
-                            setActiveEpisode(epsData[0]);
+                        }
+
+                        if (!targetEp && epsData.length > 0) {
+                            const localLastEp = localStorage.getItem(`kuro-last-ep-${id}`);
+                            if (localLastEp) {
+                                targetEp = epsData.find((e: Episode) => e.id.toString() === localLastEp);
+                            }
+                        }
+
+                        if (!targetEp && epsData.length > 0) {
+                            targetEp = epsData[0];
+                        }
+
+                        if (targetEp) {
+                            handlePlayEpisode(targetEp);
                         }
 
                         if (malDataRes?.data?.Media?.idMal) {
@@ -223,8 +263,7 @@ export default function AnimeDetails() {
             finally { setLoading(false); setEpisodesLoading(false); }
         };
         fetchDetails();
-        window.scrollTo(0, 0);
-    }, [id, location.search]); // Add location.search to dependency array
+    }, [id]);
 
     useEffect(() => {
         if (malId && activeEpisode) {
@@ -254,16 +293,27 @@ export default function AnimeDetails() {
         setSkipTimes({ op: null, ed: null });
         lastSavedTimeRef.current = 0;
 
-        // ⚡ BUG FIX: Explicitly slam the timeline back to 0 when changing episodes
         setCurrentTime(0);
         if (videoRef.current) {
             videoRef.current.currentTime = 0;
         }
 
+        window.history.replaceState(null, '', `/anime/${id}?ep=${encodeURIComponent(episode.id)}`);
+
+        localStorage.setItem(`kuro-last-ep-${id}`, episode.id.toString());
+
+        setTimeout(() => {
+            const activeBtn = document.getElementById(`ep-btn-${episode.id}`);
+            if (activeBtn) {
+                activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }, 300);
+
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         try {
-            const backendUrl = `https://kurotv-production-9a26.up.railway.app/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}`;
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
+            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}`;
             const res = await fetch(backendUrl);
             const data = await res.json();
 
@@ -320,7 +370,6 @@ export default function AnimeDetails() {
 
         const progressKey = `kuro-progress-${id}-${activeEpisode?.id}`;
 
-        // ⚡ BUG FIX: Force video to 0 if no progress exists for THIS specific episode
         const restoreProgress = () => {
             const savedTime = localStorage.getItem(progressKey);
             if (savedTime) {
@@ -360,9 +409,18 @@ export default function AnimeDetails() {
             if (document.activeElement?.tagName === 'INPUT') return;
             const { volume: v, currentTime: ct, duration: d, isPlaying: p } = playerStateRef.current;
 
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'f', ' '].includes(e.key)) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'f', ' ', 's', 'S'].includes(e.key)) {
                 e.preventDefault();
+
+                // ⚡ FIX: Wake up controls, but do NOT wake up the mouse cursor
                 setShowControls(true);
+                if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
+                controlsTimeoutRef.current = window.setTimeout(() => {
+                    if (playerStateRef.current.isPlaying) {
+                        setShowControls(false);
+                        setIsMouseActive(false);
+                    }
+                }, 3000);
             }
 
             switch (e.key) {
@@ -389,11 +447,16 @@ export default function AnimeDetails() {
                 case ' ':
                     if (videoRef.current) { p ? videoRef.current.pause() : videoRef.current.play(); }
                     break;
+                case 's':
+                case 'S':
+                    if (showSkipOp) handleSkipIntro();
+                    else if (showSkipEd) handleSkipOutro();
+                    break;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [skipTimes, currentTime]);
 
     useEffect(() => {
         const video = videoRef.current;
@@ -518,11 +581,16 @@ export default function AnimeDetails() {
         }
     };
 
+    // ⚡ FIX: Mouse move explicitly activates the cursor, then hides it after 3s
     const handleMouseMove = () => {
         setShowControls(true);
+        setIsMouseActive(true);
         if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
         controlsTimeoutRef.current = window.setTimeout(() => {
-            if (isPlaying) setShowControls(false);
+            if (playerStateRef.current.isPlaying) {
+                setShowControls(false);
+                setIsMouseActive(false);
+            }
         }, 3000);
     };
 
@@ -541,18 +609,47 @@ export default function AnimeDetails() {
     };
 
     const SKIP_OFFSET = 1.5;
+
+    const handleSkipIntro = () => {
+        if (videoRef.current && skipTimes.op) {
+            const targetTime = skipTimes.op.end + SKIP_OFFSET;
+            videoRef.current.currentTime = targetTime;
+            setCurrentTime(targetTime);
+        }
+    };
+
+    const handleSkipOutro = () => {
+        if (videoRef.current && skipTimes.ed) {
+            const targetTime = skipTimes.ed.end;
+            videoRef.current.currentTime = targetTime;
+            setCurrentTime(targetTime);
+        }
+    };
+
+    const handleNextEpisode = () => {
+        if (!anime || !activeEpisode) return;
+        const currentIndex = anime.episodes.findIndex(ep => ep.id === activeEpisode.id);
+        if (currentIndex !== -1 && currentIndex < anime.episodes.length - 1) {
+            const nextEp = anime.episodes[currentIndex + 1];
+            handlePlayEpisode(nextEp);
+        }
+    };
+
     useEffect(() => {
         const isAutoSkipEnabled = localStorage.getItem('kuro-auto-skip') === 'true';
 
         if (isAutoSkipEnabled && videoRef.current) {
             if (skipTimes.op && currentTime >= skipTimes.op.start && currentTime < skipTimes.op.end - 0.5) {
-                videoRef.current.currentTime = skipTimes.op.end + SKIP_OFFSET;
+                handleSkipIntro();
             }
         }
     }, [currentTime, skipTimes]);
 
     const showSkipOp = skipTimes.op && currentTime >= skipTimes.op.start && currentTime <= skipTimes.op.end;
     const showSkipEd = skipTimes.ed && currentTime >= skipTimes.ed.start && currentTime <= skipTimes.ed.end;
+
+    const showNextEpPrompt = duration > 0 && (duration - currentTime <= 40) && (duration - currentTime > 5);
+    const hasNextEpisode = anime && activeEpisode && anime.episodes.findIndex(ep => ep.id === activeEpisode.id) < anime.episodes.length - 1;
 
     const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -584,9 +681,15 @@ export default function AnimeDetails() {
                 <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111]">
                     <div
                         ref={playerContainerRef}
-                        className={`w-full aspect-video bg-black relative rounded-lg overflow-hidden flex items-center justify-center border border-[#111] group ${!showControls && isPlaying ? 'cursor-none' : ''}`}
+                        // ⚡ FIX: Uses !isMouseActive to completely force the cursor away via the [&_*] tailwind modifier
+                        className={`w-full aspect-video bg-black relative rounded-lg overflow-hidden flex items-center justify-center border border-[#111] group ${!isMouseActive && isPlaying ? 'cursor-none [&_*]:cursor-none' : ''}`}
                         onMouseMove={handleMouseMove}
-                        onMouseLeave={() => isPlaying && setShowControls(false)}
+                        onMouseLeave={() => {
+                            if (isPlaying) {
+                                setShowControls(false);
+                                setIsMouseActive(false);
+                            }
+                        }}
                     >
                         {streamError ? (
                             <div className="flex flex-col items-center justify-center w-full h-full bg-black z-50 p-6 text-center">
@@ -609,9 +712,9 @@ export default function AnimeDetails() {
                                             style={{ objectFit: 'contain' }}
                                         />
 
-                                        <div className={`absolute top-0 left-0 w-1/4 h-full z-10 ${!showControls && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'left')}></div>
-                                        <div className={`absolute top-0 left-1/4 w-2/4 h-full z-10 ${!showControls && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'center')}></div>
-                                        <div className={`absolute top-0 right-0 w-1/4 h-full z-10 ${!showControls && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'right')}></div>
+                                        <div className={`absolute top-0 left-0 w-1/4 h-full z-10 ${!isMouseActive && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'left')}></div>
+                                        <div className={`absolute top-0 left-1/4 w-2/4 h-full z-10 ${!isMouseActive && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'center')}></div>
+                                        <div className={`absolute top-0 right-0 w-1/4 h-full z-10 ${!isMouseActive && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'right')}></div>
 
                                         {isBuffering && (
                                             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 z-20 pointer-events-none">
@@ -619,29 +722,37 @@ export default function AnimeDetails() {
                                             </div>
                                         )}
 
-                                        {showSkipOp && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (videoRef.current) videoRef.current.currentTime = skipTimes.op!.end + SKIP_OFFSET;
-                                                }}
-                                                className="absolute bottom-24 right-8 z-[100] bg-white hover:bg-gray-200 text-black px-4 py-2 rounded font-bold text-[11px] transition-all shadow-xl flex items-center gap-1.5 cursor-pointer"
-                                            >
-                                                Skip Intro <FastForward className="w-3 h-3" />
-                                            </button>
-                                        )}
+                                        <div className="absolute bottom-24 right-8 flex flex-col items-end gap-3 z-[100]">
+                                            {showSkipOp && (
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSkipIntro(); }}
+                                                    className="bg-white hover:bg-blue-500 hover:text-white text-black px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
+                                                >
+                                                    Skip Intro <span className="opacity-50 text-[10px] font-bold ml-1 bg-black/10 px-1.5 py-0.5 rounded">S</span>
+                                                </button>
+                                            )}
 
-                                        {showSkipEd && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (videoRef.current) videoRef.current.currentTime = skipTimes.ed!.end;
-                                                }}
-                                                className="absolute bottom-24 right-8 z-[100] bg-white hover:bg-gray-200 text-black px-4 py-2 rounded font-bold text-[11px] transition-all shadow-xl flex items-center gap-1.5 cursor-pointer"
-                                            >
-                                                Skip Outro <FastForward className="w-3 h-3" />
-                                            </button>
-                                        )}
+                                            {showSkipEd && (
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSkipOutro(); }}
+                                                    className="bg-white hover:bg-blue-500 hover:text-white text-black px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
+                                                >
+                                                    Skip Outro <span className="opacity-50 text-[10px] font-bold ml-1 bg-black/10 px-1.5 py-0.5 rounded">S</span>
+                                                </button>
+                                            )}
+
+                                            {showNextEpPrompt && hasNextEpisode && (
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleNextEpisode(); }}
+                                                    className="bg-[#111]/90 backdrop-blur-md hover:bg-blue-600 text-white px-6 py-4 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-2xl flex flex-col items-start gap-1 cursor-pointer border-l-4 border-blue-500 group animate-in fade-in slide-in-from-right-8 duration-500"
+                                                >
+                                                    <span className="text-[9px] text-blue-400 group-hover:text-white/80 transition-colors">Up Next</span>
+                                                    <div className="flex items-center gap-2">
+                                                        Episode {parseInt(activeEpisode!.number.toString()) + 1} <ChevronRight className="w-4 h-4" />
+                                                    </div>
+                                                </button>
+                                            )}
+                                        </div>
 
                                         <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-16 pb-4 px-6 z-40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                                             <div className="w-full flex items-center group/scrubber cursor-pointer mb-3 pointer-events-auto relative">
@@ -814,17 +925,18 @@ export default function AnimeDetails() {
                                 return (
                                     <div
                                         key={rel.id}
-                                        onClick={() => {
-                                            navigate(`/anime/${rel.id}`);
-                                        }}
-                                        className="flex-shrink-0 w-[240px] bg-[#0a0a0a] hover:bg-[#111] border border-[#222] hover:border-blue-500 rounded-lg p-3 cursor-pointer transition-all duration-300 flex items-center gap-4 group shadow-md"
+                                        onClick={() => navigate(`/anime/${rel.id}`)}
+                                        className="flex-shrink-0 w-32 group cursor-pointer"
                                     >
-                                        <img src={rel.image} alt={rel.title} className="w-14 h-20 object-cover rounded-md shadow-md group-hover:scale-105 transition-transform duration-300" />
-                                        <div className="flex flex-col flex-1 overflow-hidden justify-center">
-                                            <span className="text-[11px] text-blue-500 font-black uppercase tracking-widest mb-1">{displayRelation}</span>
-                                            <span className="text-xs font-bold text-gray-300 group-hover:text-white line-clamp-2 leading-tight">{rel.title}</span>
-                                            <span className="text-[9px] text-gray-600 font-bold mt-2 uppercase tracking-widest bg-[#1a1a1a] px-2 py-0.5 rounded w-max">{rel.type}</span>
+                                        <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-[#111] group-hover:border-blue-500/50 transition-all">
+                                            <img src={rel.image} alt={rel.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            <div className="absolute bottom-2 left-2 right-2">
+                                                <span className="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">{rel.type}</span>
+                                            </div>
                                         </div>
+                                        <h4 className="text-[10px] font-bold mt-2 line-clamp-2 group-hover:text-blue-400 transition-colors">{rel.title}</h4>
+                                        <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest mt-0.5">{displayRelation}</p>
                                     </div>
                                 );
                             })}
@@ -832,7 +944,7 @@ export default function AnimeDetails() {
                     </div>
                 )}
 
-                {/* ⚡ BUG FIX: EPISODE HIGHLIGHT LOGIC FIXED TO USE STRICT STRING COMPARISON */}
+                {/* ⚡ EPISODE HIGHLIGHTS REBUILT */}
                 <div className="mt-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
                     <div className="flex items-center gap-4 mb-4">
                         <div className="flex-1 h-[1px] bg-[#111]"></div>
@@ -840,7 +952,7 @@ export default function AnimeDetails() {
                         <div className="flex-1 h-[1px] bg-[#111]"></div>
                     </div>
 
-                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2 p-1">
                         {episodesLoading ? (
                             <div className="col-span-full py-8 flex items-center justify-center gap-3 text-gray-500">
                                 <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
@@ -854,16 +966,26 @@ export default function AnimeDetails() {
                                 return (
                                     <button
                                         key={ep.id}
+                                        id={`ep-btn-${ep.id}`}
                                         onClick={() => handlePlayEpisode(ep)}
-                                        className={`h-9 rounded border transition-all duration-300 flex items-center justify-center font-bold text-xs 
+                                        className={`relative h-10 rounded border transition-all duration-300 flex items-center justify-center font-bold text-xs overflow-hidden
                                             ${isActive
-                                                ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                                                ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] scale-[1.05] z-10'
                                                 : isWatched
-                                                    ? 'bg-[#0a0a0a] border-green-500/30 text-green-500/70 hover:text-green-400 hover:border-green-500'
-                                                    : 'bg-[#0a0a0a] border-[#111] text-gray-400 hover:bg-[#111] hover:text-white'
+                                                    ? 'bg-[#0a0a0a] border-[#222] text-gray-500 hover:text-gray-300 hover:border-gray-500'
+                                                    : 'bg-[#111] border-[#333] text-gray-300 hover:bg-[#222] hover:text-white hover:border-blue-500/50'
                                             }`}
                                     >
-                                        {ep.number} {isWatched && !isActive && <Check className="w-3 h-3 ml-1" />}
+                                        {ep.number}
+
+                                        {/* Watched Progress Indicator */}
+                                        {isWatched && !isActive && (
+                                            <div className="absolute bottom-0 left-0 w-full h-[3px] bg-gray-600/50" />
+                                        )}
+                                        {/* Active Progress Indicator */}
+                                        {isActive && (
+                                            <div className="absolute bottom-0 left-0 w-full h-[3px] bg-white/40" />
+                                        )}
                                     </button>
                                 );
                             })
