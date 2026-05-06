@@ -1,30 +1,80 @@
 // backend/server.js
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { createRequire } from 'module';
 import { createClient } from '@supabase/supabase-js';
 import { createDecipheriv, createHash } from 'crypto';
 import { Readable } from 'stream';
+import 'dotenv/config';
 
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
 const { META, ANIME } = consumet;
 
-/// Initialize Supabase Client
-const supabaseUrl = 'https://qpcfmluwslfoiiszgoqi.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwY2ZtbHV3c2xmb2lpc3pnb3FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyOTk5NDcsImV4cCI6MjA5Mjg3NTk0N30.9xMp2A-WBdKOFs78VZCLAwnrcUiRQaHPkDV_kenL4xY';
+// ==========================================
+// 🛡️ SECURE INITIALIZATION
+// ==========================================
+// Keys are pulled from .env — never hardcoded. If missing, server won't start.
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("❌ ERROR: Supabase keys missing in .env! Deployment halted.");
+  process.exit(1);
+}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 const preferredPort = Number(process.env.PORT) || 3005;
-const host = '127.0.0.1';
+// ⚡ CLOUD FIX: 0.0.0.0 so Railway/Render can bind to the server
+const host = '0.0.0.0';
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
+// ==========================================
+// 🛡️ SECURITY MIDDLEWARE
+// ==========================================
+
+// 1. HELMET: Sets secure HTTP headers (XSS, clickjacking protection etc.)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Required for video streaming
+}));
+
+// 2. CORS LOCKDOWN: Whitelist only your actual frontend origins
+const allowedOrigins = [
+  'http://localhost:5173',                      // Local dev
+  'https://your-frontend-link.vercel.app',      // Update before deploying
+  'https://your-custom-domain.com'              // Update before deploying
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow no-origin requests (mobile apps, curl) + whitelisted origins
+    // In non-production all origins are allowed for easier local dev
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('❌ Security Check: CORS blocked this origin.'));
+    }
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true
+}));
+
+// 3. RATE LIMITING: Prevents bot spam — 150 requests per 15 min per IP
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 150,
+  message: "Too many requests from this IP, please try again after 15 minutes",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/anime/', limiter); // Only applied to anime routes — health check stays open
 
 const anilist = new META.Anilist("gogoanime");
 const ANILIST_API = 'https://graphql.anilist.co';
 
-console.log("✅ KuroTV Backend: Bulletproof Intersection Engine Online! (Debug Mode: ON)");
+console.log("✅ KuroTV Backend: Bulletproof Intersection Engine Online! (Security: HIGH)");
 
 // ==========================================
 // 🛑 CACHING SYSTEMS
