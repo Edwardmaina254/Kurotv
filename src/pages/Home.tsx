@@ -77,9 +77,7 @@ export default function Home() {
         setCurrentIndex((prev) => (prev + 1) % Math.min(trending.length, 20));
     };
 
-    const handlePrev = () => {
-        setCurrentIndex((prev) => (prev === 0 ? Math.min(trending.length, 20) - 1 : prev - 1));
-    };
+
 
     return (
         <main className="w-full flex flex-col">
@@ -94,8 +92,6 @@ export default function Home() {
                             anime={activeAnime}
                             currentIndex={currentIndex}
                             total={Math.min(trending.length, 20)}
-                            onNext={handleNext}
-                            onPrev={handlePrev}
                         />
                     )
                 )}

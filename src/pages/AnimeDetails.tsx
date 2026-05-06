@@ -105,7 +105,7 @@ export default function AnimeDetails() {
     useEffect(() => {
         const checkWatchlistStatus = async () => {
             if (user && anime) {
-                const { data, error } = await supabase
+                const { data } = await supabase
                     .from('watchlist')
                     .select('id')
                     .eq('user_id', user.id)

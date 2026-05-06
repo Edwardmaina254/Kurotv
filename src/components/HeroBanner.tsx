@@ -1,16 +1,14 @@
 // src/components/HeroBanner.tsx
-import { ChevronLeft, ChevronRight, Bookmark } from 'lucide-react';
+import { Bookmark } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface HeroBannerProps {
   anime: any;
   currentIndex: number;
   total: number;
-  onNext: () => void;
-  onPrev: () => void;
 }
 
-export default function HeroBanner({ anime, currentIndex, total, onNext, onPrev }: HeroBannerProps) {
+export default function HeroBanner({ anime, currentIndex, total }: HeroBannerProps) {
   const navigate = useNavigate(); // Navigation Hook!
 
   if (!anime) return null;

@@ -1,7 +1,7 @@
 // src/pages/Schedule.tsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Play, Loader2, Clock } from 'lucide-react';
+import { Calendar, Play, Clock } from 'lucide-react';
 
 interface ScheduledAnime {
     id: string;
