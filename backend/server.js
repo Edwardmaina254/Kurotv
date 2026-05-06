@@ -217,7 +217,7 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, reqHost) {
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return rawUri;
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
     const proxyPath = absolute.includes('.m3u8') ? '/proxy/stream.m3u8' : '/proxy/stream';
-    return `http://${reqHost}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+    return `https://kurotv-production-9a26.up.railway.app${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
   return manifest.split(/\r?\n/).map(line => {
     if (!line) return line;
@@ -754,7 +754,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
             const isTrueM3U8 = await checkIsM3U8(providerUrl);
             const proxyPath = isTrueM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-            const finalUrl = `http://${host}:${preferredPort}${proxyPath}?url=${encodeURIComponent(providerUrl)}&referer=${encodeURIComponent(ALLANIME_REFERER)}`;
+            const finalUrl = `https://kurotv-production-9a26.up.railway.app${proxyPath}?url=${encodeURIComponent(providerUrl)}&referer=${encodeURIComponent(ALLANIME_REFERER)}`;
 
             return {
               headers: { Referer: ALLANIME_REFERER },
