@@ -42,7 +42,7 @@ app.use(helmet({
 
 // 2. CORS LOCKDOWN: Whitelist only your actual frontend origins
 const corsOptions = {
-    origin: 'https://kurotv-production.up.railway.app',
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 };
