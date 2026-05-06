@@ -34,7 +34,7 @@ export default function Schedule() {
         const fetchSchedule = async () => {
             setLoading(true);
             try {
-                const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro/schedule`);
+                const res = await fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/schedule`);
                 const data = await res.json();
                 setSchedule(data.results || []);
             } catch (error) {

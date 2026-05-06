@@ -1,7 +1,7 @@
 // src/services/consumet.ts
 
 // Dedicated KuroTV port for your local backend
-const CONSUMET_URL = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro`;
+const CONSUMET_URL = `https://kurotv-production-9a26.up.railway.app/anime/zoro`;
 
 export interface AnimeResult {
   id: string;

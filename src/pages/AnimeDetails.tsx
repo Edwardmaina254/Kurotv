@@ -176,8 +176,8 @@ export default function AnimeDetails() {
             try {
                 if (id) {
                     const [infoRes, epsRes, malDataRes] = await Promise.all([
-                        fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro/info/${id}`).catch(() => null),
-                        fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro/episodes/${id}`).catch(() => null),
+                        fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/info/${id}`).catch(() => null),
+                        fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/episodes/${id}`).catch(() => null),
                         fetch('https://graphql.anilist.co', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -263,7 +263,7 @@ export default function AnimeDetails() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         try {
-            const backendUrl = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005'}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}`;
+            const backendUrl = `https://kurotv-production-9a26.up.railway.app/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}`;
             const res = await fetch(backendUrl);
             const data = await res.json();
 
