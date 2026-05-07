@@ -5,7 +5,7 @@ import HeroBanner from '../components/HeroBanner';
 import TrendingSidebar from '../components/TrendingSidebar';
 import { consumetApi, type AnimeResult } from '../services/consumet';
 import { supabase } from '../lib/supabase';
-import { Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react'; // ⚡ Added X icon
 
 interface WatchHistoryItem {
     anime_id: string;
@@ -24,10 +24,8 @@ export default function Home() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [loading, setLoading] = useState(true);
 
-    // Navigation hook
     const navigate = useNavigate();
 
-    // ⚡ NEW: Fetch Watch History
     useEffect(() => {
         const fetchHistory = async () => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -77,7 +75,29 @@ export default function Home() {
         setCurrentIndex((prev) => (prev + 1) % Math.min(trending.length, 20));
     };
 
+    // ⚡ NEW: Remove History Logic
+    const handleRemoveHistory = async (e: React.MouseEvent, anime_id: string) => {
+        e.preventDefault(); // Prevents default link behavior
+        e.stopPropagation(); // Stops the click from bubbling down to the card's navigate()
 
+        // 1. Instantly remove it from the UI so it feels blazing fast (Optimistic Update)
+        setHistory(prev => prev.filter(item => item.anime_id !== anime_id));
+
+        // 2. Remove it from the database in the background
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+            const { error } = await supabase
+                .from('watch_history')
+                .delete()
+                .eq('user_id', session.user.id)
+                .eq('anime_id', anime_id);
+
+            if (error) {
+                console.error("Failed to remove from history:", error);
+                // Note: If you wanted to be hyper-safe, you could fetch history again here if it failed
+            }
+        }
+    };
 
     return (
         <main className="w-full flex flex-col">
@@ -100,7 +120,6 @@ export default function Home() {
             <div className="flex flex-col lg:flex-row gap-8 px-12 py-10 -mt-12 relative z-40">
                 <section className="flex-1 overflow-hidden">
 
-                    {/* ⚡ THE NEW CONTINUE WATCHING CAROUSEL */}
                     {history.length > 0 && (
                         <div className="mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
                             <div className="flex items-center justify-between mb-6">
@@ -145,6 +164,15 @@ export default function Home() {
                                                     </div>
                                                 </div>
 
+                                                {/* ⚡ NEW: Remove from History Button */}
+                                                <button
+                                                    onClick={(e) => handleRemoveHistory(e, item.anime_id)}
+                                                    className="absolute top-2 right-2 w-7 h-7 bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-600 hover:border-red-500 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 z-30 opacity-0 group-hover:opacity-100 shadow-lg"
+                                                    title="Remove from history"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+
                                                 {/* Episode Badge */}
                                                 <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest border border-white/10 z-10">
                                                     EP {item.episode_number}
@@ -183,8 +211,6 @@ export default function Home() {
                             ))
                         ) : (
                             schedule.slice(0, 20).map((anime, index) => (
-                                // WIRED UP: Clicking a card now navigates to /anime/:id
-                                // THE FIX: Compound key to ensure absolute uniqueness
                                 <div
                                     key={`latest-${anime.id}-${index}`}
                                     onClick={() => navigate(`/anime/${anime.id}`)}
