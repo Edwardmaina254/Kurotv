@@ -5,7 +5,7 @@ import HeroBanner from '../components/HeroBanner';
 import TrendingSidebar from '../components/TrendingSidebar';
 import { consumetApi, type AnimeResult } from '../services/consumet';
 import { supabase } from '../lib/supabase';
-import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react'; // ⚡ Added X icon
+import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 interface WatchHistoryItem {
     anime_id: string;
@@ -47,13 +47,18 @@ export default function Home() {
         const loadData = async () => {
             setLoading(true);
             try {
-                const [trendingData, scheduleData] = await Promise.all([
-                    consumetApi.getTopTrending(),
-                    consumetApi.getAiringSchedule()
+                const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
+
+                const [trendingRes, recentRes] = await Promise.all([
+                    fetch(`${apiUrl}/anime/zoro/top-airing`).catch(() => null),
+                    fetch(`${apiUrl}/anime/zoro/recent-episodes`).catch(() => null)
                 ]);
 
-                setTrending(trendingData || []);
-                setSchedule(scheduleData && scheduleData.length > 0 ? scheduleData : trendingData);
+                const trendingData = trendingRes ? await trendingRes.json() : { results: [] };
+                const recentData = recentRes ? await recentRes.json() : { results: [] };
+
+                setTrending(trendingData.results || []);
+                setSchedule(recentData.results && recentData.results.length > 0 ? recentData.results : trendingData.results);
             } catch (error) {
                 console.error("Data fetch failed:", error);
             } finally {
@@ -75,15 +80,12 @@ export default function Home() {
         setCurrentIndex((prev) => (prev + 1) % Math.min(trending.length, 20));
     };
 
-    // ⚡ NEW: Remove History Logic
     const handleRemoveHistory = async (e: React.MouseEvent, anime_id: string) => {
-        e.preventDefault(); // Prevents default link behavior
-        e.stopPropagation(); // Stops the click from bubbling down to the card's navigate()
+        e.preventDefault();
+        e.stopPropagation();
 
-        // 1. Instantly remove it from the UI so it feels blazing fast (Optimistic Update)
         setHistory(prev => prev.filter(item => item.anime_id !== anime_id));
 
-        // 2. Remove it from the database in the background
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
             const { error } = await supabase
@@ -92,10 +94,7 @@ export default function Home() {
                 .eq('user_id', session.user.id)
                 .eq('anime_id', anime_id);
 
-            if (error) {
-                console.error("Failed to remove from history:", error);
-                // Note: If you wanted to be hyper-safe, you could fetch history again here if it failed
-            }
+            if (error) console.error("Failed to remove from history:", error);
         }
     };
 
@@ -157,14 +156,12 @@ export default function Home() {
                                                 />
                                                 <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors duration-300" />
 
-                                                {/* Play Button Overlay */}
                                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
                                                     <div className="w-12 h-12 bg-blue-600/90 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.6)] transform scale-75 group-hover:scale-100 transition-all duration-300">
                                                         <Play className="w-5 h-5 ml-1 fill-current" />
                                                     </div>
                                                 </div>
 
-                                                {/* ⚡ NEW: Remove from History Button */}
                                                 <button
                                                     onClick={(e) => handleRemoveHistory(e, item.anime_id)}
                                                     className="absolute top-2 right-2 w-7 h-7 bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-600 hover:border-red-500 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 z-30 opacity-0 group-hover:opacity-100 shadow-lg"
@@ -173,12 +170,10 @@ export default function Home() {
                                                     <X className="w-4 h-4" />
                                                 </button>
 
-                                                {/* Episode Badge */}
                                                 <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest border border-white/10 z-10">
                                                     EP {item.episode_number}
                                                 </div>
 
-                                                {/* Progress Bar */}
                                                 <div className="absolute bottom-0 left-0 w-full h-1 bg-[#222]">
                                                     <div
                                                         className="h-full bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.8)]"
@@ -226,7 +221,7 @@ export default function Home() {
                                             EP {(anime as any).episode || "1"}
                                         </div>
                                         <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-[9px] font-black px-2 py-1 rounded-md uppercase border border-white/10 z-20">
-                                            {anime.subOrDub || "SUB"}
+                                            {(anime as any).type || "SUB"}
                                         </div>
                                     </div>
 

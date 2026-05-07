@@ -11,12 +11,11 @@ import 'dotenv/config';
 
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
-const { META, ANIME } = consumet;
+const { META } = consumet;
 
 // ==========================================
 // 🛡️ SECURE INITIALIZATION
 // ==========================================
-// Keys are pulled from .env — never hardcoded. If missing, server won't start.
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
@@ -28,27 +27,22 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 const preferredPort = Number(process.env.PORT) || 3005;
-// ⚡ CLOUD FIX: 0.0.0.0 so Railway/Render can bind to the server
 const host = '0.0.0.0';
 
 // ==========================================
 // 🛡️ SECURITY MIDDLEWARE
 // ==========================================
-
-// 1. HELMET: Sets secure HTTP headers (XSS, clickjacking protection etc.)
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" } // Required for video streaming
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// 2. CORS LOCKDOWN: Whitelist only your actual frontend origins
 const corsOptions = {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
 
-// 3. RATE LIMITING: Prevents bot spam — 150 requests per 15 min per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 150,
@@ -56,20 +50,25 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/anime/', limiter); // Only applied to anime routes — health check stays open
+app.use('/anime/', limiter);
 
-const anilist = new META.Anilist("gogoanime");
+const anilist = new META.Anilist();
 const ANILIST_API = 'https://graphql.anilist.co';
 
 console.log("✅ KuroTV Backend: Bulletproof Intersection Engine Online! (Security: HIGH)");
 
 // ==========================================
-// 🛑 CACHING SYSTEMS
+// 🛑 CACHING SYSTEMS & THE BANLIST
 // ==========================================
 const CACHE = { trending: null, recent: null, schedule: null };
 
 const NODE_CACHE = new Map();
 const MAPPING_CACHE = new Map();
+
+// ⚡ THE BANLIST: Add the AniList ID of any broken/ghost anime here to erase it from the app!
+const BANNED_ANIME_IDS = [
+  '209940' // Komekami! Girls
+];
 
 const getCache = (key) => NODE_CACHE.get(key);
 const setCache = (key, data, ttlHours = 2) => {
@@ -90,6 +89,81 @@ const fetchWithBackoff = async (url, options, maxRetries = 3) => {
   }
   throw new Error("Max retries reached after Rate Limit.");
 };
+
+// ==========================================
+// ⏱️ THE TIMEOUT OVERRIDE ENGINE
+// ==========================================
+const timeoutPromise = (promise, ms) => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms);
+    promise
+      .then(value => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(err => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
+// ==========================================
+// ⚙️ SHARED SOURCE PROCESSOR
+// ==========================================
+async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
+  const obfuscated = sources.filter(s => s.sourceUrl && s.sourceUrl.startsWith('--'));
+  const sorted = [
+    ...obfuscated.filter(s => s.type === 'player'),
+    ...obfuscated.filter(s => s.type !== 'player')
+  ].slice(0, 5);
+
+  if (sorted.length === 0) return null;
+
+  const sourcePromises = sorted.map(async (source) => {
+    const encoded = source.sourceUrl.slice(2);
+    let decoded = "";
+    for (let i = 0; i < encoded.length; i += 2) {
+      decoded += OBFUSCATED_DECODE_TABLE[encoded.slice(i, i + 2).toLowerCase()] || "";
+    }
+    decoded = decoded.replace("/clock", "/clock.json");
+    let providerUrl = decoded.startsWith("http") ? decoded : `https://${ALLANIME_BASE}${decoded}`;
+    providerUrl = providerUrl.replace(/([^:]\/)\/+/g, "$1");
+
+    if (providerUrl.includes('clock.json') || providerUrl.endsWith('.json')) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1000);
+
+      const clockRes = await fetch(providerUrl, {
+        headers: { Referer: ALLANIME_REFERER, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36" },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!clockRes.ok) throw new Error(`Clock HTTP ${clockRes.status}`);
+      const clockData = await clockRes.json();
+      const firstLink = clockData?.links?.[0];
+
+      if (!firstLink?.link) throw new Error(`Clock JSON has no link field`);
+
+      providerUrl = firstLink.link;
+      if (!providerUrl.startsWith('http')) providerUrl = `https://${ALLANIME_BASE}${providerUrl}`;
+    }
+
+    const isTrueM3U8 = await checkIsM3U8(providerUrl);
+    const proxyPath = isTrueM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
+    const finalUrl = `${baseUrl}${proxyPath}?url=${encodeURIComponent(providerUrl)}&referer=${encodeURIComponent(ALLANIME_REFERER)}`;
+    return { headers: { Referer: ALLANIME_REFERER }, sources: [{ url: finalUrl, isM3U8: isTrueM3U8, quality: 'default' }] };
+  });
+
+  try {
+    const fastestResponse = await Promise.any(sourcePromises);
+    return fastestResponse;
+  } catch (aggregateError) {
+    console.warn(`[SOURCE RACE] All sources timed out or failed.`);
+    return null;
+  }
+}
 
 // ==========================================
 // 🗡️ ALLANIME DECRYPTION ENGINE
@@ -168,18 +242,27 @@ function normalizeTobeparsed(value) {
 }
 
 async function allAnimeGql(variables, query) {
-  const res = await fetch(`${ALLANIME_API}/api`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Referer": ALLANIME_REFERER,
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36"
-    },
-    body: JSON.stringify({ variables, query }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-  if (!res.ok) throw new Error(`AllAnime request failed: ${res.status}`);
-  return normalizeTobeparsed(await res.json());
+  try {
+    const res = await fetch(`${ALLANIME_API}/api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Referer": ALLANIME_REFERER,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36"
+      },
+      body: JSON.stringify({ variables, query }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`AllAnime request failed: ${res.status}`);
+    return normalizeTobeparsed(await res.json());
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
 }
 
 async function checkIsM3U8(url) {
@@ -187,7 +270,7 @@ async function checkIsM3U8(url) {
   try {
     const headers = { "Referer": ALLANIME_REFERER, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36" };
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1000);
+    const timeout = setTimeout(() => controller.abort(), 400);
     let res = await fetch(url, { method: 'HEAD', headers, signal: controller.signal });
     clearTimeout(timeout);
 
@@ -196,7 +279,7 @@ async function checkIsM3U8(url) {
     if (contentType.includes('mp4') || contentType.includes('video/mp4')) return false;
 
     const sniffController = new AbortController();
-    const sniffTimeout = setTimeout(() => sniffController.abort(), 1000);
+    const sniffTimeout = setTimeout(() => sniffController.abort(), 400);
     res = await fetch(url, { headers: { ...headers, Range: 'bytes=0-150' }, signal: sniffController.signal });
     const arrayBuffer = await res.arrayBuffer();
     clearTimeout(sniffTimeout);
@@ -210,14 +293,14 @@ function toAbsoluteUrl(url, baseUrl) {
   try { return new URL(url, baseUrl).toString(); } catch { return url; }
 }
 
-function rewriteHlsManifest(manifest, manifestUrl, referer, reqHost) {
+function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
   const effectiveReferer = referer && referer.trim().length > 0 ? referer : manifestUrl;
   const toProxyUrl = (rawUri) => {
     const trimmed = rawUri.trim();
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return rawUri;
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
     const proxyPath = absolute.includes('.m3u8') ? '/proxy/stream.m3u8' : '/proxy/stream';
-    return `https://kurotv-production-9a26.up.railway.app${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+    return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
   return manifest.split(/\r?\n/).map(line => {
     if (!line) return line;
@@ -239,9 +322,12 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
     const query = `query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
-    const formatted = (json?.data?.Page?.media || []).map(anime => ({
-      id: anime?.id?.toString() || '', title: anime?.title?.english || anime?.title?.romaji || 'Unknown', image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '', rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
-    }));
+    const formatted = (json?.data?.Page?.media || [])
+      .map(anime => ({
+        id: anime?.id?.toString() || '', title: anime?.title?.english || anime?.title?.romaji || 'Unknown', image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '', rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
+      }))
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+
     CACHE.trending = formatted;
     return res.json({ results: formatted });
   } catch (error) { return res.json({ results: CACHE.trending || [] }); }
@@ -252,9 +338,12 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
     const query = `query { Page(page: 1, perPage: 30) { airingSchedules(notYetAired: false, sort: TIME_DESC) { episode media { id title { english romaji } coverImage { extraLarge } type } } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
-    const rawList = (json?.data?.Page?.airingSchedules || []).map(item => ({
-      id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
-    }));
+    const rawList = (json?.data?.Page?.airingSchedules || [])
+      .map(item => ({
+        id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
+      }))
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+
     const unique = []; const seen = new Set();
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
     CACHE.recent = unique.slice(0, 20);
@@ -293,14 +382,16 @@ app.get('/anime/zoro/schedule', async (req, res) => {
     });
 
     const json = await response.json();
-    const formatted = (json?.data?.Page?.airingSchedules || []).map(item => ({
-      id: item?.media?.id?.toString() || '',
-      episode: item?.episode || 1,
-      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
-      image: item?.media?.coverImage?.extraLarge || '',
-      type: item?.media?.type || "TV",
-      airingAt: item?.airingAt || 0
-    }));
+    const formatted = (json?.data?.Page?.airingSchedules || [])
+      .map(item => ({
+        id: item?.media?.id?.toString() || '',
+        episode: item?.episode || 1,
+        title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
+        image: item?.media?.coverImage?.extraLarge || '',
+        type: item?.media?.type || "TV",
+        airingAt: item?.airingAt || 0
+      }))
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
 
     const unique = []; const seen = new Set();
     for (const anime of formatted) {
@@ -374,15 +465,17 @@ app.get('/anime/zoro/search', async (req, res) => {
       throw new Error("GraphQL Error");
     }
 
-    const formatted = (json?.data?.Page?.media || []).map(anime => ({
-      id: anime?.id?.toString() || '',
-      title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
-      image: anime?.coverImage?.extraLarge || '',
-      type: anime?.format || "TV",
-      status: anime?.status || "UNKNOWN",
-      rating: anime?.averageScore || 0,
-      totalEpisodes: anime?.episodes || 0
-    }));
+    const formatted = (json?.data?.Page?.media || [])
+      .map(anime => ({
+        id: anime?.id?.toString() || '',
+        title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
+        image: anime?.coverImage?.extraLarge || '',
+        type: anime?.format || "TV",
+        status: anime?.status || "UNKNOWN",
+        rating: anime?.averageScore || 0,
+        totalEpisodes: anime?.episodes || 0
+      }))
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
 
     return res.json({
       results: formatted,
@@ -440,7 +533,8 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
           image: edge.node.coverImage?.extraLarge || '',
           type: edge.node.format || 'TV',
           relationType: edge.relationType
-        }));
+        }))
+        .filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString())); // ⚡ BANLIST FILTER FOR RELATIONS
     }
 
     return res.json({
@@ -464,7 +558,7 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 });
 
 // ==========================================
-// 🛑 EPISODES LIST WITH RAM CACHE & JOJO FIX
+// 🛑 EPISODES LIST WITH "PHANTOM PADDING" FIX
 // ==========================================
 app.get('/anime/zoro/episodes/:id', async (req, res) => {
   const id = req.params.id;
@@ -473,112 +567,152 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   const cacheKey = `episodes-${id}`;
   if (getCache(cacheKey)) return res.json(getCache(cacheKey));
 
-  // 🛑 PERMANENT FIX: Try Consumet's native AniList-to-Gogoanime mapping FIRST
-  try {
-    const consumetInfo = await anilist.fetchAnimeInfo(id);
-    if (consumetInfo && consumetInfo.episodes && consumetInfo.episodes.length > 0) {
-      setCache(cacheKey, { episodes: consumetInfo.episodes });
-      return res.json({ episodes: consumetInfo.episodes });
-    }
-  } catch (e) {
-    console.warn(`[EPISODE SYNC] Native mapper failed for ${id}. Engaging Fallback Engine...`);
-  }
-
   let animeTitles = [];
   let format = "TV";
   let finalEpisodes = [];
-  let targetEpisodes = 0; // 🛑 THE JOJO FIX: We fetch exactly how many episodes it SHOULD have.
+  let targetEpisodes = 0;
 
+  // 1. Get Official Data
   try {
-    const q = `query($id:Int){Media(id:$id){title{english romaji} format episodes nextAiringEpisode{episode}}}`;
+    const q = `query($id:Int){Media(id:$id){title{english romaji} status format episodes nextAiringEpisode{episode}}}`;
     const r = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, variables: { id: parseInt(id) } }) });
     const j = await r.json();
     if (j?.data?.Media) {
       if (j.data.Media.title) animeTitles = [j.data.Media.title.english, j.data.Media.title.romaji].filter(Boolean);
       if (j.data.Media.format) format = j.data.Media.format;
-      // Store the official episode count so we can cross-reference it
-      targetEpisodes = j.data.Media.episodes || (j.data.Media.nextAiringEpisode ? j.data.Media.nextAiringEpisode.episode - 1 : 0);
+
+      if (j.data.Media.nextAiringEpisode) {
+        targetEpisodes = Math.max(0, j.data.Media.nextAiringEpisode.episode - 1);
+      } else if (j.data.Media.episodes) {
+        targetEpisodes = j.data.Media.episodes;
+      } else if (j.data.Media.status === 'RELEASING' || j.data.Media.status === 'FINISHED') {
+        targetEpisodes = 12;
+      }
     }
   } catch (e) { }
 
+  // 2. Native Mapper
+  try {
+    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 800);
+    if (consumetInfo && consumetInfo.episodes && consumetInfo.episodes.length > 0) {
+      let finalEps = consumetInfo.episodes;
+
+      const maxFoundEp = Math.max(...finalEps.map(ep => typeof ep.number === 'number' ? ep.number : parseInt(ep.number) || 0), 0);
+      if (targetEpisodes > maxFoundEp) {
+        for (let i = Math.floor(maxFoundEp) + 1; i <= targetEpisodes; i++) {
+          finalEps.push({ id: `auto-${id}-${i}`, number: i, url: `auto-${id}-${i}` });
+        }
+      }
+
+      setCache(cacheKey, { episodes: finalEps });
+      return res.json({ episodes: finalEps });
+    }
+  } catch (e) {
+    console.warn(`[EPISODE SYNC] Native mapper failed for ${id}. Engaging Fallback Engine...`);
+  }
+
+  // 3. Fallback Mapper
   if (animeTitles.length > 0) {
     try {
-      const SEARCH_GQL = `query($search: SearchInput) { shows(search: $search, limit: 40) { edges { _id name englishName availableEpisodesDetail } } }`;
-      const EPISODES_GQL = `query ($showId: String!) { show( _id: $showId ) { _id availableEpisodesDetail } }`;
+      let allAnimeId = MAPPING_CACHE.get(`allanime-id-${id}`);
 
-      let allAnimeId = null;
-      let bestScore = -1;
+      if (!allAnimeId) {
+        const SEARCH_GQL = `query($search: SearchInput) { shows(search: $search, limit: 40) { edges { _id name englishName availableEpisodesDetail } } }`;
+        const getWords = (str) => {
+          if (!str) return [];
+          return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length > 0 && !['sub', 'dub', 'tv', 'movie', 'ova', 'special', 'ona', 'part', 'season', 'the', 'and', 'of', 'nd', 'rd', 'th'].includes(w));
+        };
 
-      const getWords = (str) => {
-        if (!str) return [];
-        return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length > 0 && !['sub', 'dub', 'tv', 'movie', 'ova', 'special', 'ona', 'part', 'season', 'the', 'and', 'of', 'nd', 'rd', 'th'].includes(w));
-      };
+        const searchPromises = animeTitles.map(title => {
+          let searchQuery = ['MOVIE', 'OVA', 'SPECIAL', 'ONA'].includes(format) ? title.replace(/Movie/gi, '').replace(/OVA/gi, '').trim() : title;
+          const broadQuery = getWords(searchQuery).slice(0, 3).join(' ');
+          return allAnimeGql({ search: { query: broadQuery, allowAdult: false, allowUnknown: false } }, SEARCH_GQL).catch(() => null);
+        });
 
-      for (const title of animeTitles) {
-        let searchQuery = ['MOVIE', 'OVA', 'SPECIAL', 'ONA'].includes(format) ? title.replace(/Movie/gi, '').replace(/OVA/gi, '').trim() : title;
-        const broadQuery = getWords(searchQuery).slice(0, 3).join(' ');
+        const searchResults = await Promise.all(searchPromises);
+        let bestScore = -1;
 
-        const searchJson = await allAnimeGql({ search: { query: broadQuery, allowAdult: false, allowUnknown: false } }, SEARCH_GQL);
-        const edges = searchJson?.data?.shows?.edges;
+        for (let i = 0; i < animeTitles.length; i++) {
+          const title = animeTitles[i];
+          const searchJson = searchResults[i];
+          const edges = searchJson?.data?.shows?.edges;
 
-        if (edges && edges.length > 0) {
-          const targetWords = getWords(title);
-          const exactTarget = targetWords.join('');
+          if (edges && edges.length > 0) {
+            const targetWords = getWords(title);
+            const exactTarget = targetWords.join('');
 
-          for (const edge of edges) {
-            const nameWords = getWords(edge.name);
-            const engWords = getWords(edge.englishName);
+            for (const edge of edges) {
+              const nameWords = getWords(edge.name);
+              const engWords = getWords(edge.englishName);
 
-            let matchCountName = 0; targetWords.forEach(tw => { if (nameWords.includes(tw)) matchCountName++; });
-            let scoreName = targetWords.length > 0 ? (matchCountName / targetWords.length) * 100 : 0;
-            scoreName -= Math.abs(nameWords.length - targetWords.length) * 5;
+              let matchCountName = 0; targetWords.forEach(tw => { if (nameWords.includes(tw)) matchCountName++; });
+              let scoreName = targetWords.length > 0 ? (matchCountName / targetWords.length) * 100 : 0;
+              scoreName -= Math.abs(nameWords.length - targetWords.length) * 5;
 
-            let matchCountEng = 0; targetWords.forEach(tw => { if (engWords.includes(tw)) matchCountEng++; });
-            let scoreEng = targetWords.length > 0 ? (matchCountEng / targetWords.length) * 100 : 0;
-            scoreEng -= Math.abs(engWords.length - targetWords.length) * 5;
+              let matchCountEng = 0; targetWords.forEach(tw => { if (engWords.includes(tw)) matchCountEng++; });
+              let scoreEng = targetWords.length > 0 ? (matchCountEng / targetWords.length) * 100 : 0;
+              scoreEng -= Math.abs(engWords.length - targetWords.length) * 5;
 
-            let finalScore = Math.max(scoreName, scoreEng);
-            if (nameWords.join('') === exactTarget || engWords.join('') === exactTarget) finalScore = 150;
+              let finalScore = Math.max(scoreName, scoreEng);
+              if (nameWords.join('') === exactTarget || engWords.join('') === exactTarget) finalScore = 150;
 
-            // 🛑 THE JOJO FIX: Max Episode Matcher
-            // This checks how many episodes the search result has. If it matches AniList (e.g. 26), 
-            // it gets a massive boost, guaranteeing it beats the OVA (7).
-            const subEps = edge.availableEpisodesDetail?.sub || [];
-            const dubEps = edge.availableEpisodesDetail?.dub || [];
-            const edgeMaxEps = Math.max(
-              ...subEps.map(n => parseFloat(n)).filter(n => !isNaN(n)),
-              ...dubEps.map(n => parseFloat(n)).filter(n => !isNaN(n)),
-              0
-            );
+              const subEps = edge.availableEpisodesDetail?.sub || [];
+              const dubEps = edge.availableEpisodesDetail?.dub || [];
+              const edgeMaxEps = Math.max(
+                ...subEps.map(n => parseFloat(n)).filter(n => !isNaN(n)),
+                ...dubEps.map(n => parseFloat(n)).filter(n => !isNaN(n)),
+                0
+              );
 
-            if (targetEpisodes > 0 && Math.abs(edgeMaxEps - targetEpisodes) <= 2) {
-              finalScore += 200; // Instantly forces the correct season to win!
+              if (targetEpisodes > 0 && Math.abs(edgeMaxEps - targetEpisodes) <= 2) {
+                finalScore += 200;
+              }
+
+              if (finalScore > 0 && finalScore > bestScore) {
+                bestScore = finalScore;
+                allAnimeId = edge._id;
+              }
+              if (finalScore >= 350) break;
             }
-
-            if (finalScore > 0 && finalScore > bestScore) {
-              bestScore = finalScore;
-              allAnimeId = edge._id;
-            }
-            if (finalScore >= 350) break; // Break early if perfect match
           }
         }
       }
 
-      // Because this is your original code, the `allAnimeId` is embedded right here in the URL!
       if (allAnimeId) {
-        const epJson = await allAnimeGql({ showId: allAnimeId }, EPISODES_GQL);
-        const subEpisodes = epJson?.data?.show?.availableEpisodesDetail?.sub;
+        MAPPING_CACHE.set(`allanime-id-${id}`, allAnimeId);
 
-        if (subEpisodes && Array.isArray(subEpisodes)) {
-          finalEpisodes = subEpisodes.map(epNumString => {
+        const EPISODES_GQL = `query ($showId: String!) { show( _id: $showId ) { _id availableEpisodesDetail } }`;
+        const epJson = await allAnimeGql({ showId: allAnimeId }, EPISODES_GQL);
+
+        const parseEps = (raw) => {
+          if (Array.isArray(raw)) return raw.map(e => typeof e === 'object' ? (e.episode || e.ep || e.number || e.toString()) : String(e));
+          if (raw && typeof raw === 'object') return Object.keys(raw);
+          return [];
+        };
+
+        const subEps = parseEps(epJson?.data?.show?.availableEpisodesDetail?.sub);
+        const dubEps = parseEps(epJson?.data?.show?.availableEpisodesDetail?.dub);
+        const rawEps = parseEps(epJson?.data?.show?.availableEpisodesDetail?.raw);
+
+        const combinedEps = Array.from(new Set([...subEps, ...dubEps, ...rawEps]));
+
+        if (combinedEps.length > 0) {
+          finalEpisodes = combinedEps.map(epNumString => {
             const num = parseFloat(epNumString);
             const combinedId = `allanime-${id}-vid-${allAnimeId}-ep-${epNumString}`;
             return {
               id: combinedId,
-              number: (format === 'MOVIE' && subEpisodes.length === 1) ? "Full Movie" : num,
+              number: (format === 'MOVIE' && combinedEps.length === 1) ? "Full Movie" : num,
               url: combinedId
             };
           }).sort((a, b) => (typeof a.number === 'number' && typeof b.number === 'number') ? a.number - b.number : 0);
+
+          const maxFoundEp = Math.max(...finalEpisodes.map(ep => typeof ep.number === 'number' ? ep.number : parseInt(ep.number) || 0), 0);
+          if (targetEpisodes > maxFoundEp) {
+            for (let i = Math.floor(maxFoundEp) + 1; i <= targetEpisodes; i++) {
+              finalEpisodes.push({ id: `auto-${id}-${i}`, number: i, url: `auto-${id}-${i}` });
+            }
+          }
 
           setCache(cacheKey, { episodes: finalEpisodes });
           return res.json({ episodes: finalEpisodes });
@@ -587,25 +721,15 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     } catch (e) { }
   }
 
+  // 4. Absolute Fallback
   if (format === 'MOVIE') {
     finalEpisodes.push({ id: `auto-${id}-1`, number: "Full Movie", url: `auto-${id}-1` });
     setCache(cacheKey, { episodes: finalEpisodes });
     return res.json({ episodes: finalEpisodes });
   }
 
-  let airedCount = 12;
-  try {
-    const qCount = `query($id:Int){Media(id:$id){status episodes nextAiringEpisode{episode}}}`;
-    const rCount = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: qCount, variables: { id: parseInt(id) } }) });
-    const jCount = await rCount.json();
-    if (jCount?.data?.Media) {
-      if (jCount.data.Media.nextAiringEpisode) airedCount = jCount.data.Media.nextAiringEpisode.episode - 1;
-      else if (jCount.data.Media.episodes) airedCount = jCount.data.Media.episodes;
-    }
-  } catch (e) { }
-
-  if (airedCount > 0) {
-    for (let i = 1; i <= airedCount; i++) {
+  if (targetEpisodes > 0) {
+    for (let i = 1; i <= targetEpisodes; i++) {
       finalEpisodes.push({ id: `auto-${id}-${i}`, number: i, url: `auto-${id}-${i}` });
     }
     setCache(cacheKey, { episodes: finalEpisodes });
@@ -616,11 +740,17 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   res.json({ episodes: finalEpisodes });
 });
 
+// ==========================================
+// 🛡️ DYNAMIC SSL PROXY ROUTES
+// ==========================================
 app.get('/proxy/stream.m3u8', async (req, res) => {
   const targetUrl = req.query.url;
   const referer = req.query.referer || ALLANIME_REFERER;
 
   if (!targetUrl) return res.status(400).send("Missing URL");
+
+  const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
+  const baseUrl = `${protocol}://${req.get('host')}`;
 
   try {
     const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36", "Accept": "*/*" };
@@ -628,12 +758,12 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     const contentType = (fetchRes.headers.get('content-type') || '').toLowerCase();
 
     if (contentType.includes('video/mp4') || contentType.includes('octet-stream')) {
-      return res.redirect(`/proxy/stream?url=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent(referer)}`);
+      return res.redirect(`${baseUrl}/proxy/stream?url=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent(referer)}`);
     }
 
     res.status(fetchRes.status);
     const manifestText = await fetchRes.text();
-    const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, req.get('host'));
+    const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl);
 
     fetchRes.headers.forEach((val, key) => {
       const lower = key.toLowerCase();
@@ -653,6 +783,9 @@ app.get('/proxy/stream', async (req, res) => {
 
   if (!targetUrl) return res.status(400).send("Missing URL");
 
+  const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
+  const baseUrl = `${protocol}://${req.get('host')}`;
+
   try {
     const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36", "Accept": "*/*" };
     if (req.headers.range) headers.Range = req.headers.range;
@@ -669,7 +802,7 @@ app.get('/proxy/stream', async (req, res) => {
 
     const upstreamType = (fetchRes.headers.get('content-type') || '').toLowerCase();
     if (upstreamType.includes('mpegurl') || upstreamType.includes('application/x-mpegurl')) {
-      return res.redirect(`/proxy/stream.m3u8?url=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent(referer)}`);
+      return res.redirect(`${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent(referer)}`);
     }
 
     res.setHeader('access-control-allow-origin', '*');
@@ -690,7 +823,7 @@ app.get('/proxy/stream', async (req, res) => {
 });
 
 // ==========================================
-// 🛑 YOUR ORIGINAL WATCH ROUTE (LIGHTNING FAST)
+// 🛑 WATCH ROUTE (DYNAMIC BASE URL UPGRADE)
 // ==========================================
 app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const episodeId = req.params.episodeId;
@@ -702,7 +835,9 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     return res.json(getCache(cacheKey));
   }
 
-  // Because the ID generated above has allAnimeId embedded, this is instant.
+  const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
+  const baseUrl = `${protocol}://${req.get('host')}`;
+
   if (episodeId.startsWith('auto-') || episodeId.startsWith('allanime-')) {
     console.log(`🎬 Intercepted Virtual ID: ${episodeId} (Mode: ${lang})`);
 
@@ -722,103 +857,171 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           let epJson = await allAnimeGql({ showId: allAnimeId, translationType: lang, episodeString: epNum }, EPISODE_EMBED_GQL);
           let sources = epJson?.data?.episode?.sourceUrls || [];
 
+          if (sources.length === 0) {
+            const paddedEp = String(epNum).padStart(2, '0');
+            console.log(`[BACKEND] Sources empty. Trying padded episode: ${paddedEp}`);
+            epJson = await allAnimeGql({ showId: allAnimeId, translationType: lang, episodeString: paddedEp }, EPISODE_EMBED_GQL);
+            sources = epJson?.data?.episode?.sourceUrls || [];
+          }
+
           if (sources.length === 0 && lang === 'dub') {
             console.log(`[BACKEND] Dub not found for ${allAnimeId}. Falling back to Sub...`);
             epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'sub', episodeString: epNum }, EPISODE_EMBED_GQL);
             sources = epJson?.data?.episode?.sourceUrls || [];
+
+            if (sources.length === 0) {
+              const paddedEp = String(epNum).padStart(2, '0');
+              epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'sub', episodeString: paddedEp }, EPISODE_EMBED_GQL);
+              sources = epJson?.data?.episode?.sourceUrls || [];
+            }
           }
 
-          const validSources = sources.filter(s => s.sourceUrl && s.sourceUrl.startsWith('--')).slice(0, 2);
-
-          const sourcePromises = validSources.map(async (source) => {
-            const encoded = source.sourceUrl.slice(2);
-            let decoded = "";
-            for (let i = 0; i < encoded.length; i += 2) {
-              decoded += OBFUSCATED_DECODE_TABLE[encoded.slice(i, i + 2).toLowerCase()] || "";
+          // RAW FALLBACK
+          if (sources.length === 0) {
+            epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'raw', episodeString: epNum }, EPISODE_EMBED_GQL);
+            sources = epJson?.data?.episode?.sourceUrls || [];
+            if (sources.length === 0) {
+              const paddedEp = String(epNum).padStart(2, '0');
+              epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'raw', episodeString: paddedEp }, EPISODE_EMBED_GQL);
+              sources = epJson?.data?.episode?.sourceUrls || [];
             }
-            decoded = decoded.replace("/clock", "/clock.json");
+          }
 
-            let providerUrl = decoded.startsWith("http") ? decoded : `https://${ALLANIME_BASE}${decoded}`;
-            providerUrl = providerUrl.replace(/([^:]\/)\/+/g, "$1");
-
-            if (providerUrl.includes('clock.json') || providerUrl.endsWith('.json')) {
-              const clockRes = await fetch(providerUrl, { headers: { Referer: ALLANIME_REFERER } });
-              const clockData = await clockRes.json();
-              if (clockData && clockData.links && clockData.links.length > 0) {
-                providerUrl = clockData.links[0].link;
-                if (!providerUrl.startsWith('http')) providerUrl = `https://${ALLANIME_BASE}${providerUrl}`;
-              } else {
-                throw new Error("Empty Clock JSON");
-              }
-            }
-
-            const isTrueM3U8 = await checkIsM3U8(providerUrl);
-            const proxyPath = isTrueM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-            const finalUrl = `https://kurotv-production-9a26.up.railway.app${proxyPath}?url=${encodeURIComponent(providerUrl)}&referer=${encodeURIComponent(ALLANIME_REFERER)}`;
-
-            return {
-              headers: { Referer: ALLANIME_REFERER },
-              sources: [{ url: finalUrl, isM3U8: isTrueM3U8, quality: 'default' }]
-            };
-          });
-
-          const results = await Promise.allSettled(sourcePromises);
-          const successful = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-          const bestResponse = successful.find(s => s.sources[0].isM3U8) || successful[0];
-
+          const bestResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
           if (bestResponse) {
             setCache(cacheKey, bestResponse);
             return res.json(bestResponse);
           }
-          throw new Error("All concurrent obfuscated sources failed.");
-        } catch (e) { console.warn(`⚠️ Native AllAnime Extraction Failed. Falling back to Failsafe...`); }
+          throw new Error("All sources failed after processing.");
+        } catch (e) { console.warn(`⚠️ Native AllAnime Extraction Failed: ${e.message}`); }
       }
     } else {
       const parts = episodeId.split('-');
       animeId = parts[1];
       epNum = parts[2];
+
+      allAnimeId = MAPPING_CACHE.get(`allanime-id-${animeId}`);
     }
 
     try {
-      const info = await anilist.fetchAnimeInfo(animeId);
-      if (info && info.episodes && info.episodes.length > 0) {
-        const targetEp = info.episodes.find(ep => ep.number === parseInt(epNum));
-        if (targetEp && targetEp.id) {
-          const data = await anilist.fetchEpisodeSources(targetEp.id);
-          setCache(cacheKey, data);
-          return res.json(data);
-        }
-      }
-      throw new Error("Could not find mapped episode. Falling back to slug guesser...");
-    } catch (e) {
-      // ⚡ LAST RESORT FALLBACK (With added Mapping Cache support just in case!)
-      try {
-        const mappingKey = `allanime-map-${animeId}`;
-        let fallbackAllAnimeId = MAPPING_CACHE.get(mappingKey);
+      if (!allAnimeId) {
+        console.log(`[FALLBACK ENGINE] Native AllAnime ID missing. Searching AllAnime by title for AniList ID: ${animeId}`);
 
-        if (!fallbackAllAnimeId) {
-          const query = `query($id:Int){Media(id:$id){title{romaji english}}}`;
-          const r = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(animeId) } }) });
-          const j = await r.json();
-          const title = j?.data?.Media?.title?.romaji || j?.data?.Media?.title?.english || 'anime';
-          const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          const targetSlug = `${slug}-episode-${epNum}`;
-          const data = await anilist.fetchEpisodeSources(targetSlug);
-          setCache(cacheKey, data);
-          return res.json(data);
+        const titleQuery = `query($id:Int){Media(id:$id){title{romaji english} episodes nextAiringEpisode{episode}}}`;
+        const titleRes = await fetchWithBackoff(ANILIST_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: titleQuery, variables: { id: parseInt(animeId) } })
+        });
+        const titleJson = await titleRes.json();
+        const titles = [
+          titleJson?.data?.Media?.title?.english,
+          titleJson?.data?.Media?.title?.romaji
+        ].filter(Boolean);
+
+        if (titles.length === 0) throw new Error("Could not resolve title from AniList");
+
+        const targetEpisodes = titleJson?.data?.Media?.episodes ||
+          (titleJson?.data?.Media?.nextAiringEpisode ? titleJson.data.Media.nextAiringEpisode.episode - 1 : 0);
+
+        const SEARCH_GQL = `query($search: SearchInput) { shows(search: $search, limit: 30) { edges { _id name englishName availableEpisodesDetail } } }`;
+        const getWords = (str) => {
+          if (!str) return [];
+          return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ')
+            .filter(w => w.length > 0 && !['sub', 'dub', 'tv', 'movie', 'ova', 'special', 'ona', 'part', 'season', 'the', 'and', 'of'].includes(w));
+        };
+
+        let bestScore = -1;
+
+        const searchPromises = titles.map(title => {
+          const broadQuery = getWords(title).slice(0, 3).join(' ');
+          return allAnimeGql({ search: { query: broadQuery, allowAdult: false, allowUnknown: false } }, SEARCH_GQL).catch(() => null);
+        });
+
+        const searchResults = await Promise.all(searchPromises);
+
+        for (let i = 0; i < titles.length; i++) {
+          const title = titles[i];
+          const searchJson = searchResults[i];
+          const edges = searchJson?.data?.shows?.edges || [];
+
+          for (const edge of edges) {
+            const targetWords = getWords(title);
+            const nameWords = getWords(edge.name);
+            const engWords = getWords(edge.englishName);
+
+            let matchName = 0; targetWords.forEach(tw => { if (nameWords.includes(tw)) matchName++; });
+            let matchEng = 0; targetWords.forEach(tw => { if (engWords.includes(tw)) matchEng++; });
+            let score = Math.max(
+              targetWords.length > 0 ? (matchName / targetWords.length) * 100 : 0,
+              targetWords.length > 0 ? (matchEng / targetWords.length) * 100 : 0
+            );
+
+            if (nameWords.join('') === targetWords.join('') || engWords.join('') === targetWords.join('')) score = 150;
+
+            const subEps = edge.availableEpisodesDetail?.sub || [];
+            const maxEps = Math.max(...subEps.map(n => parseFloat(n)).filter(n => !isNaN(n)), 0);
+            if (targetEpisodes > 0 && Math.abs(maxEps - targetEpisodes) <= 2) score += 200;
+
+            if (score > bestScore) { bestScore = score; allAnimeId = edge._id; }
+            if (score >= 350) break;
+          }
+          if (bestScore >= 350) break;
         }
-      } catch (err) {
-        console.log(`[FALLBACK ENGINE] ❌ Stream completely unavailable for ID ${animeId}`);
-        return res.json({ error: "Unreleased or No Sources", sources: [] });
+
+        if (!allAnimeId) throw new Error("AllAnime title search returned no matches");
+        console.log(`[FALLBACK ENGINE] ✅ Matched AllAnime ID: ${allAnimeId} (score: ${bestScore}) for episode ${epNum}`);
+        MAPPING_CACHE.set(`allanime-id-${animeId}`, allAnimeId);
       }
+
+      const EPISODE_EMBED_GQL = `query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls } }`;
+      let epJson = await allAnimeGql({ showId: allAnimeId, translationType: lang, episodeString: epNum }, EPISODE_EMBED_GQL);
+      let sources = epJson?.data?.episode?.sourceUrls || [];
+
+      if (sources.length === 0) {
+        const paddedEp = String(epNum).padStart(2, '0');
+        epJson = await allAnimeGql({ showId: allAnimeId, translationType: lang, episodeString: paddedEp }, EPISODE_EMBED_GQL);
+        sources = epJson?.data?.episode?.sourceUrls || [];
+      }
+
+      if (sources.length === 0 && lang === 'dub') {
+        epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'sub', episodeString: epNum }, EPISODE_EMBED_GQL);
+        sources = epJson?.data?.episode?.sourceUrls || [];
+
+        if (sources.length === 0) {
+          const paddedEp = String(epNum).padStart(2, '0');
+          epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'sub', episodeString: paddedEp }, EPISODE_EMBED_GQL);
+          sources = epJson?.data?.episode?.sourceUrls || [];
+        }
+      }
+
+      if (sources.length === 0) {
+        epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'raw', episodeString: epNum }, EPISODE_EMBED_GQL);
+        sources = epJson?.data?.episode?.sourceUrls || [];
+        if (sources.length === 0) {
+          const paddedEp = String(epNum).padStart(2, '0');
+          epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'raw', episodeString: paddedEp }, EPISODE_EMBED_GQL);
+          sources = epJson?.data?.episode?.sourceUrls || [];
+        }
+      }
+
+      const bestResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
+      if (bestResponse) {
+        setCache(cacheKey, bestResponse);
+        return res.json(bestResponse);
+      }
+      throw new Error("All AllAnime fallback sources failed");
+
+    } catch (err) {
+      console.log(`[FALLBACK ENGINE] ❌ Stream completely unavailable for ID ${animeId} - ${err.message}`);
+      return res.json({ error: "Unreleased or No Sources", sources: [] });
     }
   }
 
-  // Native Gogoanime ID Handler
   if (episodeId.startsWith('http')) return res.json({ sources: [{ url: episodeId, isM3U8: episodeId.includes('.m3u8'), quality: 'default' }] });
 
   try {
-    const data = await anilist.fetchEpisodeSources(episodeId);
+    const data = await timeoutPromise(anilist.fetchEpisodeSources(episodeId), 4500);
     setCache(cacheKey, data);
     res.json(data);
   } catch (error) { res.status(500).json({ error: "Stream Failed" }); }
