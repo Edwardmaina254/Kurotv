@@ -726,7 +726,7 @@ export default function AnimeDetails() {
                                             {showSkipOp && (
                                                 <button
                                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSkipIntro(); }}
-                                                    className="bg-white hover:bg-blue-500 hover:text-white text-black px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
+                                                    className="bg-blue-600/40 backdrop-blur-md hover:bg-blue-500 text-white px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
                                                 >
                                                     Skip Intro <span className="opacity-50 text-[10px] font-bold ml-1 bg-black/10 px-1.5 py-0.5 rounded">S</span>
                                                 </button>
@@ -735,7 +735,7 @@ export default function AnimeDetails() {
                                             {showSkipEd && (
                                                 <button
                                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSkipOutro(); }}
-                                                    className="bg-white hover:bg-blue-500 hover:text-white text-black px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
+                                                    className="bg-blue-600/40 backdrop-blur-md hover:bg-blue-500 text-white px-6 py-3 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center gap-2 cursor-pointer border-l-4 border-blue-600 animate-in fade-in slide-in-from-right-4 duration-300"
                                                 >
                                                     Skip Outro <span className="opacity-50 text-[10px] font-bold ml-1 bg-black/10 px-1.5 py-0.5 rounded">S</span>
                                                 </button>
