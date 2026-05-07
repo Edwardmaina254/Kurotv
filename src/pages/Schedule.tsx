@@ -30,30 +30,74 @@ export default function Schedule() {
         { label: 'SAT', index: 6 },
     ];
 
+    // ⚡ Fetch dynamically per day straight from AniList
     useEffect(() => {
-        const fetchSchedule = async () => {
+        const fetchScheduleForDay = async () => {
             setLoading(true);
             try {
-                const res = await fetch(`https://kurotv-production-9a26.up.railway.app/anime/zoro/schedule`);
-                const data = await res.json();
-                setSchedule(data.results || []);
+                // 1. Calculate the exact start and end Unix timestamps for the selected day
+                const now = new Date();
+                const currentDay = now.getDay();
+                const diff = activeDay - currentDay;
+
+                const targetDate = new Date(now);
+                targetDate.setDate(now.getDate() + diff);
+                targetDate.setHours(0, 0, 0, 0); // Start of the selected day
+
+                const startUnix = Math.floor(targetDate.getTime() / 1000);
+                const endUnix = startUnix + (24 * 60 * 60) - 1; // End of the selected day
+
+                // 2. Direct GraphQL Query (bypassing the backend limit)
+                const query = `
+                  query ($start: Int, $end: Int) { 
+                    Page(page: 1, perPage: 150) { 
+                      airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { 
+                        airingAt 
+                        episode 
+                        media { id title { english romaji } coverImage { extraLarge } type } 
+                      } 
+                    } 
+                  }
+                `;
+
+                const res = await fetch('https://graphql.anilist.co', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ query, variables: { start: startUnix, end: endUnix } })
+                });
+
+                const json = await res.json();
+
+                const formatted = (json?.data?.Page?.airingSchedules || []).map((item: any) => ({
+                    id: item?.media?.id?.toString() || '',
+                    title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
+                    image: item?.media?.coverImage?.extraLarge || '',
+                    type: item?.media?.type || "TV",
+                    episode: item?.episode || 1,
+                    airingAt: item?.airingAt || 0
+                }));
+
+                // Deduplicate just to keep the grid clean
+                const unique: ScheduledAnime[] = [];
+                const seen = new Set();
+                for (const anime of formatted) {
+                    if (!seen.has(anime.id)) {
+                        seen.add(anime.id);
+                        unique.push(anime);
+                    }
+                }
+
+                setSchedule(unique);
             } catch (error) {
                 console.error("Failed to load schedule", error);
+                setSchedule([]);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchSchedule();
-    }, []);
-
-    // Filter the schedule list based on the active day tab
-    const daySchedule = schedule
-        .filter(anime => {
-            if (!anime.airingAt) return false;
-            return new Date(anime.airingAt * 1000).getDay() === activeDay;
-        })
-        .sort((a, b) => a.airingAt - b.airingAt); // Sort chronologically
+        fetchScheduleForDay();
+    }, [activeDay]);
 
     return (
         <div className="min-h-screen bg-[#040404] text-white pt-28 pb-20 px-6 md:px-12">
@@ -72,8 +116,8 @@ export default function Schedule() {
                                 key={day.label}
                                 onClick={() => setActiveDay(day.index)}
                                 className={`px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${activeDay === day.index
-                                        ? 'bg-blue-600 text-white shadow-md'
-                                        : 'text-gray-500 hover:text-white hover:bg-white/5'
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'text-gray-500 hover:text-white hover:bg-white/5'
                                     }`}
                             >
                                 {day.label}
@@ -89,7 +133,7 @@ export default function Schedule() {
                             <div key={`skel-${i}`} className="aspect-[2/3] bg-white/5 rounded-[20px] animate-pulse" />
                         ))}
                     </div>
-                ) : daySchedule.length === 0 ? (
+                ) : schedule.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-32 text-gray-500 bg-[#0a0a0a] rounded-2xl border border-[#111]">
                         <Clock className="w-12 h-12 mb-4 opacity-20" />
                         <h2 className="text-xl font-black uppercase tracking-widest">Nothing Scheduled</h2>
@@ -97,7 +141,7 @@ export default function Schedule() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-y-10 gap-x-6">
-                        {daySchedule.map((anime) => {
+                        {schedule.map((anime) => {
                             // Automatically formats the unix timestamp to local browser time (e.g., 8:30 PM)
                             const timeString = new Date(anime.airingAt * 1000).toLocaleTimeString([], {
                                 hour: '2-digit',
