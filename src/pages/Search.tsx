@@ -98,29 +98,20 @@ export default function Search() {
         const fetchSearchResults = async () => {
             setLoading(true);
             try {
-                // 🔥 DYNAMIC API GATEWAY ALIGNMENT
-                // Seamlessly routes to your local backend during development to bypass cross-origin blocks,
-                // while automatically targeting your production gateway when deployed live.
                 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
-
-                const safeQuery = query ? query.trim() : '';
+                const searchStr = query ? query.trim() : '';
 
                 let url = `${apiUrl}/anime/zoro/search?page=${page}&sort=${sort}`;
-                if (safeQuery) url += `&q=${encodeURIComponent(safeQuery)}`;
+                if (searchStr) url += `&q=${encodeURIComponent(searchStr)}`;
                 if (genre) url += `&genres=${encodeURIComponent(genre)}`;
                 if (format) url += `&format=${encodeURIComponent(format)}`;
 
                 const res = await fetch(url);
-
                 if (!res.ok) {
-                    throw new Error(`Server returned ${res.status} — check your backend logs.`);
+                    throw new Error(`HTTP Error: ${res.status}`);
                 }
 
                 const data = await res.json();
-
-                if (data.error) {
-                    console.warn("[Search] Backend error:", data.error);
-                }
 
                 if (page === 1) {
                     setResults(data.results || []);
@@ -129,7 +120,7 @@ export default function Search() {
                 }
                 setHasNextPage(data.hasNextPage);
             } catch (error) {
-                console.error("Search failed:", error);
+                console.error("Search fetch failed:", error);
                 if (page === 1) setResults([]);
             } finally {
                 setLoading(false);

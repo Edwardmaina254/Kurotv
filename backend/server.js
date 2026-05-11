@@ -432,7 +432,7 @@ app.get('/anime/zoro/schedule', async (req, res) => {
 });
 
 // ==========================================
-// 🔍 GOD-MODE SEARCH ROUTE (UNIFIED PROXIMITY ENGINE)
+// 🔍 GOD-MODE SEARCH ROUTE (SCHEMA-SAFE RELEVANCE FORCING)
 // ==========================================
 app.get('/anime/zoro/search', async (req, res) => {
   try {
@@ -450,23 +450,18 @@ app.get('/anime/zoro/search', async (req, res) => {
       'score': 'SCORE_DESC'
     };
 
-    let sortQuery = [];
-    if (search) {
-      sortQuery = ['SEARCH_MATCH', 'POPULARITY_DESC'];
-    } else if (req.query.sort && sortMap[req.query.sort]) {
-      sortQuery = [sortMap[req.query.sort]];
-    } else {
-      sortQuery = ['TRENDING_DESC'];
-    }
-
+    // 🔥 SCHEMA-SAFE SORT INJECTION
+    // Passes supported enums into the dynamic variable array to bypass HTTP 400 validation failures,
+    // while forcing literal SEARCH_MATCH execution directly inside the string parameter block.
     let queryArgs = `$page: Int, $perPage: Int, $sort: [MediaSort]`;
     let mediaArgs = `type: ANIME, sort: $sort`;
     const fetchLimit = search ? 50 : perPage;
-    const variables = { page, perPage: fetchLimit, sort: sortQuery };
+    const variables = {
+      page,
+      perPage: fetchLimit,
+      sort: search ? ["POPULARITY_DESC", "SCORE_DESC"] : [sortMap[req.query.sort] || 'TRENDING_DESC']
+    };
 
-    // 🔥 PRECISE ALGORITHMIC BROADCASTING
-    // Ensures your live server extracts absolute keyword nodes, bypassing empty array query leaks
-    // while feeding instant data back to your global preview dropdowns.
     if (search) {
       let graphqlSearchString = search;
       const words = search.split(/\s+/).filter(w => w.length > 2);
@@ -477,7 +472,10 @@ app.get('/anime/zoro/search', async (req, res) => {
       }
 
       queryArgs += `, $search: String`;
-      mediaArgs += `, search: $search`;
+      // Hardcode SEARCH_MATCH directly ahead of the popularity array to force absolute matching priority
+      mediaArgs += `, search: $search, sort: [SEARCH_MATCH, POPULARITY_DESC]`;
+      // Delete the dynamic sort parameter to bypass schema type checking collisions entirely
+      delete variables.sort;
       variables.search = graphqlSearchString;
     }
 
@@ -518,14 +516,11 @@ app.get('/anime/zoro/search', async (req, res) => {
 
     if (json.errors) {
       console.error("AniList GraphQL Errors:", json.errors);
-      throw new Error("GraphQL Error");
+      throw new Error("Validation Schema Crash");
     }
 
     let rawResults = json?.data?.Page?.media || [];
 
-    // 🔥 UNIFIED PROXIMITY POST-FILTER
-    // Slightly relaxes matching thresholds specifically for instant auto-complete preview strings
-    // to guarantee immediate dropdown population while maintaining pristine mainline discovery indexing.
     if (search) {
       const norm = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
       const queryNorm = norm(search);
@@ -536,19 +531,17 @@ app.get('/anime/zoro/search', async (req, res) => {
         const tRom = norm(anime?.title?.romaji);
         const fullT = `${tEng} ${tRom}`;
 
-        // Absolute direct match
         if (tEng.includes(queryNorm) || tRom.includes(queryNorm)) {
           return true;
         }
 
-        // Distinct keyword proximity checks
         if (queryWords.length > 0) {
           if (queryWords.length <= 2) {
             return queryWords.every(w => fullT.includes(w));
           } else {
             let matchCount = 0;
             queryWords.forEach(w => { if (fullT.includes(w)) matchCount++; });
-            return (matchCount / queryWords.length) >= 0.4; // Softened threshold to reliably render previews
+            return (matchCount / queryWords.length) >= 0.4;
           }
         }
         return false;
@@ -573,8 +566,8 @@ app.get('/anime/zoro/search', async (req, res) => {
       hasNextPage: json?.data?.Page?.pageInfo?.hasNextPage || false
     });
   } catch (error) {
-    console.error("[SEARCH ERROR]", error.message, "\n", error.stack);
-    return res.status(500).json({ results: [], hasNextPage: false, error: error.message || "Search Failed" });
+    console.error("[SEARCH ERROR]", error.message);
+    return res.status(500).json({ results: [], hasNextPage: false, error: "Search Failed" });
   }
 });
 
