@@ -459,7 +459,7 @@ app.get('/anime/zoro/search', async (req, res) => {
     const variables = {
       page,
       perPage: fetchLimit,
-      sort: search ? ["POPULARITY_DESC", "SCORE_DESC"] : [sortMap[req.query.sort] || 'TRENDING_DESC']
+      sort: search ? ["SEARCH_MATCH", "POPULARITY_DESC"] : [sortMap[req.query.sort] || 'TRENDING_DESC']
     };
 
     if (search) {
@@ -472,10 +472,7 @@ app.get('/anime/zoro/search', async (req, res) => {
       }
 
       queryArgs += `, $search: String`;
-      // Hardcode SEARCH_MATCH directly inside the string query block to enforce exact search mapping
-      mediaArgs += `, search: $search, sort: [SEARCH_MATCH, POPULARITY_DESC]`;
-      // Fully strip the dynamic sort array property to bypass enum type checking collisions
-      delete variables.sort;
+      mediaArgs += `, search: $search`;
       variables.search = graphqlSearchString;
     }
 
