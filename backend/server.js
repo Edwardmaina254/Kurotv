@@ -575,118 +575,105 @@ app.get('/anime/zoro/search', async (req, res) => {
 app.get('/anime/zoro/info/:id', async (req, res) => {
   const id = req.params.id;
   const cacheKey = `info-${id}`;
-  if (getCache(cacheKey)) return res.json(getCache(cacheKey));
+
+  // 1. Check Cache First
+  const cachedData = getCache(cacheKey);
+  if (cachedData) return res.json(cachedData);
 
   try {
-    const query = `query ($id: Int) { 
-      Media (id: $id, type: ANIME) { 
-        id title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
-        relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
-      } 
-    }`;
-    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(id) } }) });
-
-    if (!response.ok) throw new Error("AniList response was not ok");
-
-    const json = await response.json();
-    const anime = json?.data?.Media;
-
-    if (!anime) throw new Error("Anime data missing from AniList");
-
+    let anime = null;
     let relations = [];
-    if (anime.relations && anime.relations.edges) {
+
+    // --- PRIMARY SEARCH: Jikan (MAL) ---
+    // Note: Assuming 'id' passed here is the MAL ID. 
+    // If it's an AniList ID, you'd need a mapping step first.
+    let jikanData = null;
+    try {
+      const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${id}/full`);
+      if (jikanRes.ok) {
+        const jRes = await jikanRes.json();
+        jikanData = jRes.data;
+      }
+    } catch (err) {
+      console.error("Jikan Primary Fetch Failed:", err.message);
+    }
+
+    // --- SECONDARY ENRICHMENT: AniList ---
+    // We try AniList to get the banner, cleaner descriptions, and relations.
+    try {
+      const query = `query ($id: Int, $search: String) { 
+        Media (id: $id, search: $search, type: ANIME) { 
+          id title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type 
+          startDate { year month day } 
+          relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
+        } 
+      }`;
+
+      // Use Jikan title as a fallback search if ID lookup fails due to ID mismatch
+      const variables = jikanData
+        ? { search: jikanData.title }
+        : { id: parseInt(id) };
+
+      const alResponse = await fetchWithBackoff(ANILIST_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables })
+      });
+
+      if (alResponse.ok) {
+        const json = await alResponse.json();
+        anime = json?.data?.Media;
+      }
+    } catch (alErr) {
+      console.warn("AniList Secondary Fetch failed (likely rate limited). Falling back to Jikan.");
+    }
+
+    // --- DATA NORMALIZATION ---
+    // Use AniList data if available, otherwise use Jikan data.
+    const finalTitle = anime?.title?.english || anime?.title?.romaji || jikanData?.title || 'Unknown Title';
+    const finalImage = anime?.coverImage?.extraLarge || jikanData?.images?.jpg?.large_image_url || '';
+
+    // Process Relations (Only if AniList succeeded)
+    if (anime?.relations?.edges) {
       relations = anime.relations.edges
         .filter(edge => ['PREQUEL', 'SEQUEL', 'ALTERNATIVE', 'SPIN_OFF', 'SIDE_STORY'].includes(edge.relationType))
-        .map(edge => {
-          let titleStr = edge.node.title?.english || edge.node.title?.romaji || '';
-          if (!titleStr || titleStr.toLowerCase().includes('unknown')) {
-            titleStr = `${edge.node.format || 'TV'} ${edge.relationType.replace('_', ' ')}`;
-          }
-          return {
-            id: edge.node.id,
-            title: titleStr,
-            image: edge.node.coverImage?.extraLarge || '',
-            type: edge.node.format || 'TV',
-            relationType: edge.relationType
-          };
-        })
+        .map(edge => ({
+          id: edge.node.id,
+          title: edge.node.title?.english || edge.node.title?.romaji || `${edge.node.format || 'TV'} ${edge.relationType}`,
+          image: edge.node.coverImage?.extraLarge || '',
+          type: edge.node.format || 'TV',
+          relationType: edge.relationType
+        }))
         .filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()));
     }
 
-    const baseFranchiseTitleStr = anime.title?.english || anime.title?.romaji || '';
-    let cleanSearchTerm = baseFranchiseTitleStr.replace(/\s*(Season|Part|Cour|Chapter)\s*\d+.*/i, '').trim();
-    if (cleanSearchTerm.includes(':')) {
-      cleanSearchTerm = cleanSearchTerm.split(':')[0].trim();
-    }
-
-    const termLower = cleanSearchTerm.toLowerCase();
-
-    if (termLower && termLower.length > 3 && relations.length < 5) {
-      try {
-        const generalizedQuery = `
-          query($search: String) {
-            Page(page: 1, perPage: 15) {
-              media(search: $search, type: ANIME, sort: START_DATE) {
-                id title { english romaji } coverImage { extraLarge } format
-              }
-            }
-          }
-        `;
-        const generalizedRes = await fetch(ANILIST_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: generalizedQuery, variables: { search: cleanSearchTerm } })
-        });
-        const generalizedData = await generalizedRes.json();
-        if (generalizedData?.data?.Page?.media) {
-          const existingIds = new Set(relations.map(r => r.id.toString()));
-          existingIds.add(anime.id.toString());
-
-          generalizedData.data.Page.media.forEach(gm => {
-            const gmTitle = (gm.title?.english || gm.title?.romaji || '').toLowerCase();
-            if (gmTitle.includes(termLower) && !existingIds.has(gm.id.toString())) {
-              existingIds.add(gm.id.toString());
-              let dispTitle = gm.title?.english || gm.title?.romaji || '';
-              if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
-                dispTitle = `${gm.format || 'TV'} Season`;
-              }
-              relations.push({
-                id: gm.id,
-                title: dispTitle,
-                image: gm.coverImage?.extraLarge || '',
-                type: gm.format || 'TV',
-                relationType: 'SEQUEL'
-              });
-            }
-          });
-        }
-      } catch (err) { }
-    }
-
-    let primaryTitle = anime.title?.english || anime.title?.romaji || '';
-    if (!primaryTitle || primaryTitle.toLowerCase().includes('unknown')) {
-      primaryTitle = `${anime.type || 'TV'} Series`;
-    }
-
+    // --- PAYLOAD CONSTRUCTION ---
     const payloadObj = {
-      id: anime.id?.toString() || id,
-      title: primaryTitle,
-      image: anime.coverImage?.extraLarge || '',
-      bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
-      description: anime.description || 'No synopsis available.',
-      genres: anime.genres || [],
-      rating: anime.averageScore || 0,
-      status: anime.status || 'UNKNOWN',
-      totalEpisodes: anime.episodes || 0,
-      type: anime.type || 'TV',
-      releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown',
+      id: id,
+      title: finalTitle,
+      image: finalImage,
+      bannerImage: anime?.bannerImage || finalImage, // Fallback to cover if no banner
+      description: anime?.description || jikanData?.synopsis || 'No synopsis available.',
+      genres: anime?.genres || jikanData?.genres?.map(g => g.name) || [],
+      rating: anime?.averageScore || (jikanData?.score ? jikanData.score * 10 : 0),
+      status: anime?.status || jikanData?.status?.toUpperCase() || 'UNKNOWN',
+      totalEpisodes: anime?.episodes || jikanData?.episodes || 0,
+      type: anime?.type || jikanData?.type || 'TV',
+      releaseDate: anime?.startDate?.year
+        ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}`
+        : (jikanData?.aired?.from?.split('T')[0] || 'Unknown'),
       relations: relations
     };
 
+    // If we have neither AniList nor Jikan, throw error
+    if (!jikanData && !anime) throw new Error("Anime not found on both providers");
+
     setCache(cacheKey, payloadObj);
     return res.json(payloadObj);
+
   } catch (error) {
-    res.status(404).json({ error: "Anime not found or unreleased" });
+    console.error("Search Error:", error.message);
+    res.status(404).json({ error: "Anime not found or provider timeout" });
   }
 });
 

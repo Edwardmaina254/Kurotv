@@ -105,7 +105,6 @@ export default function Search() {
                 if (searchStr) url += `&q=${encodeURIComponent(searchStr)}`;
                 if (genre) url += `&genres=${encodeURIComponent(genre)}`;
                 if (format) url += `&format=${encodeURIComponent(format)}`;
-
                 const res = await fetch(url);
                 if (!res.ok) {
                     throw new Error(`HTTP Error: ${res.status}`);

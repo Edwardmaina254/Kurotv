@@ -5,7 +5,7 @@ import { type AnimeDetails as AnimeDetailsType, type Episode } from '../services
 import {
     Bookmark, ArrowLeft, Play, Pause, Loader2, Star,
     Maximize, Minimize, Volume2, VolumeX, Settings,
-    RotateCcw, RotateCw, Check, ChevronLeft, ChevronRight
+    RotateCcw, RotateCw, Check
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { supabase } from '../lib/supabase';
@@ -98,7 +98,6 @@ export default function AnimeDetails() {
     }, [autoPlay, autoSkip, autoNext, skipTimes]);
 
     const videoRef = useRef<HTMLVideoElement>(null);
-    const seasonsScrollRef = useRef<HTMLDivElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -106,6 +105,7 @@ export default function AnimeDetails() {
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [animeFetchResult, setAnimeFetchResult] = useState<any>(null);
 
     const [showControls, setShowControls] = useState(true);
     const [isMouseActive, setIsMouseActive] = useState(true);
@@ -218,7 +218,7 @@ export default function AnimeDetails() {
             try {
                 const initialInfoRes = await fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null);
                 const initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
-
+                setAnimeFetchResult(initialInfo);
                 if (!initialInfo || !initialInfo.title) {
                     setError("Anime data not found.");
                     setLoading(false);
@@ -368,7 +368,6 @@ export default function AnimeDetails() {
                     titleLower.includes('onepunch') ||
                     titleLower.includes('wan panchi')
                 ) {
-                    // 🔥 SWAPPED TO CANONICAL ANILIST IDs FOR ONE-PUNCH MAN
                     const opmIds = new Set(['21087', '97668']);
                     isolatedSeasons = compiledSeasons.filter(s =>
                         opmIds.has(s.id.toString()) || s.id.toString() === id
@@ -401,7 +400,6 @@ export default function AnimeDetails() {
                     142329: 'Season 4',
                     166240: 'Season 5 Part 1',
                     171424: 'Season 5 Part 2',
-                    // 🔥 CANONICAL ANILIST IDs FOR ONE-PUNCH MAN
                     21087: 'Season 1',
                     97668: 'Season 2',
                     108465: 'Season 1',
@@ -470,9 +468,6 @@ export default function AnimeDetails() {
                     }
                 });
 
-                // 🔥 DUPLICATE-FREE SEQUENTIAL LABELLING
-                // Sorts everything by air date first, then auto-numbers non-override entries
-                // while syncing the counter to existing overrides to guarantee zero label conflicts.
                 const mainline: ExtendedAnimeDetails[] = [];
                 const extras: ExtendedAnimeDetails[] = [];
 
@@ -1087,7 +1082,7 @@ export default function AnimeDetails() {
     if (error || chronologicalSeasons.length === 0) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-black">
-                <h2 className="text-2xl font-bold text-white">Error Loading Chronological Anime</h2>
+                <h2 className="text-2xl font-bold text-white">Error Loading Anime Details</h2>
             </div>
         );
     }
@@ -1109,7 +1104,7 @@ export default function AnimeDetails() {
                 <div className="flex flex-col xl:flex-row gap-5 items-start">
                     <div className="flex-1 min-w-0 w-full">
 
-                        {/* 1. THE MEDIA PLAYER */}
+                        {/* 1. THE MEDIA PLAYER (STAYS AT THE TOP) */}
                         <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111] mb-6">
                             <div
                                 ref={playerContainerRef}
@@ -1294,14 +1289,12 @@ export default function AnimeDetails() {
                                 )}
                             </div>
 
-                            {/* 🔥 INJECTED CONTROLS & BINGE BUTTONS BAR */}
                             <div className="flex flex-col lg:flex-row gap-6 mt-4 px-2 items-center justify-between">
                                 <div className="text-center lg:text-left w-full lg:w-auto">
                                     <p className="text-sm text-gray-400">
                                         Watching <span className="text-blue-400 font-bold">{currentPlayingSeasonObj?.title}</span> <span className="text-white font-black ml-1">Episode {activeEpisode?.number || 1}</span>
                                     </p>
 
-                                    {/* BINGE AUTOMATION CONTROLS ROW */}
                                     <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 mt-2.5 bg-[#0a0a0a] border border-[#1a1a1a] px-3 py-1.5 rounded-lg w-fit mx-auto lg:mx-0">
                                         <button
                                             onClick={() => toggleSetting('kuro-auto-play', autoPlay, setAutoPlay)}
@@ -1355,7 +1348,7 @@ export default function AnimeDetails() {
                             </div>
                         </div>
 
-                        {/* 2. THE EPISODES GRID */}
+                        {/* 2. REORDERED PRIORITY: THE EPISODES GRID IS PLACED DIRECTLY UNDER THE PLAYER */}
                         {chronologicalSeasons.map((seasonObj) => {
                             const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
                             if (!isCurrentlyPlayingThisSeason) return null;
@@ -1412,70 +1405,47 @@ export default function AnimeDetails() {
                             );
                         })}
 
-                        {/* 3. THE SEASONS SELECTOR */}
-                        {chronologicalSeasons.length > 1 && (
-                            <div className="bg-[#030303] rounded-xl border border-[#111] w-full overflow-hidden mb-6">
-                                <div className="flex items-center justify-between px-5 py-3 border-b border-[#111]">
-                                    <h3 className="text-xs font-black uppercase tracking-widest text-white">Seasons</h3>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => { if (seasonsScrollRef.current) seasonsScrollRef.current.scrollBy({ left: -280, behavior: 'smooth' }); }}
-                                            className="w-7 h-7 rounded-full bg-[#111] border border-[#1e1e1e] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer z-20"
-                                        >
-                                            <ChevronLeft className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => { if (seasonsScrollRef.current) seasonsScrollRef.current.scrollBy({ left: 280, behavior: 'smooth' }); }}
-                                            className="w-7 h-7 rounded-full bg-[#111] border border-[#1e1e1e] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer z-20"
-                                        >
-                                            <ChevronRight className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
+                        {/* 3. RELATED SEASONS & MEDIA (FOLLOWS EPISODES) */}
+                        {animeFetchResult?.relations && animeFetchResult.relations.length > 0 && (
+                            <div className="mb-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Related Seasons & Media</h3>
+                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
                                 </div>
-                                <div ref={seasonsScrollRef} className="flex gap-3 px-4 py-4 overflow-x-auto scroll-smooth w-full relative z-10" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                                    {chronologicalSeasons.map((s) => {
-                                        const isActive = playingSeasonId === s.id;
-                                        const epCount = s.episodes?.length || 0;
 
-                                        return (
-                                            <button
-                                                key={`stab-${s.id}`}
-                                                onClick={() => {
-                                                    if (s.id.toString() === id) {
-                                                        const fe = s.episodes?.[0];
-                                                        if (fe) handlePlayEpisode(fe, s.id);
-                                                    } else {
-                                                        navigate(`/anime/${s.id}`);
-                                                    }
-                                                }}
-                                                className={`relative flex-shrink-0 w-[140px] rounded-xl overflow-hidden border transition-all duration-300 group cursor-pointer ${isActive ? 'border-blue-500 shadow-[0_0_18px_rgba(37,99,235,0.35)]' : 'border-[#1a1a1a] hover:border-blue-500/40'}`}
-                                            >
-                                                <div className="relative h-[95px] w-full overflow-hidden bg-[#050505]">
-                                                    <img src={s.image} alt={s.title} className="absolute inset-0 w-full h-full object-cover scale-110 group-hover:scale-125 transition-transform duration-700" />
-                                                    <div className="absolute inset-0 bg-black/50 group-hover:bg-black/30 transition-colors duration-300" />
-
-                                                    <div className="absolute inset-x-0 bottom-0 bg-black/75 backdrop-blur-md py-1 px-1.5 text-center border-t border-white/10 z-20">
-                                                        <p className="text-[9px] font-black text-white tracking-wider uppercase truncate">
-                                                            {s._shortLabel || s.title}
-                                                        </p>
-                                                    </div>
-
-                                                    {isActive && <div className="absolute top-2 right-2 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded z-20">ON</div>}
-                                                    {!isActive && <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10"><div className="w-8 h-8 bg-blue-600/90 rounded-full flex items-center justify-center"><Play className="w-3.5 h-3.5 fill-current text-white ml-0.5" /></div></div>}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                    {animeFetchResult.relations.map((rel: Relation) => (
+                                        <button
+                                            key={rel.id}
+                                            onClick={() => navigate(`/anime/${rel.id}`)}
+                                            className="flex items-start gap-3 p-2.5 bg-[#0a0a0a] hover:bg-[#111] border border-[#1a1a1a] hover:border-blue-500/40 rounded-lg transition-all text-left cursor-pointer group"
+                                        >
+                                            <img
+                                                src={rel.image}
+                                                alt={rel.title}
+                                                className="w-12 h-16 object-cover rounded shrink-0 bg-[#111]"
+                                            />
+                                            <div className="flex flex-col min-w-0 flex-1 justify-between h-full py-0.5">
+                                                <div>
+                                                    <span className="text-[9px] font-black text-blue-500 tracking-wider uppercase block mb-0.5">
+                                                        {rel.relationType?.replace('_', ' ')}
+                                                    </span>
+                                                    <h4 className="text-xs font-bold text-gray-200 group-hover:text-white line-clamp-2 leading-tight mb-1.5">
+                                                        {rel.title}
+                                                    </h4>
                                                 </div>
-                                                <div className={`px-3 py-2 transition-colors duration-300 ${isActive ? 'bg-blue-600/15' : 'bg-[#0a0a0a] group-hover:bg-[#111]'}`}>
-                                                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest truncate">{epCount > 0 ? `${epCount} Eps` : s.type || 'TV'}</p>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                                <span className="text-[8px] font-black text-gray-500 bg-[#111] border border-[#222] px-1.5 py-0.5 rounded w-fit uppercase tracking-wider">
+                                                    {rel.type || 'TV'}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* 4. THE DETAILS CARD */}
+                        {/* 4. THE DETAILS CARD (PLACED AT THE VERY BOTTOM) */}
                         <div className="flex flex-col gap-8">
                             {chronologicalSeasons.map((seasonObj) => {
                                 const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
@@ -1533,7 +1503,7 @@ export default function AnimeDetails() {
 
                     </div>
 
-                    {/* 🔥 ITEM 1 POLISH: RECOMMENDATIONS SIDEBAR NATIVE ANCHOR SUPPORT */}
+                    {/* RECOMMENDATIONS SIDEBAR */}
                     <div className="w-full xl:w-[360px] flex-shrink-0">
                         <div className="sticky top-24 bg-[#050505] rounded-xl border border-[#111] overflow-hidden">
                             <div className="px-4 py-3 border-b border-[#111] flex items-center justify-between">
@@ -1566,10 +1536,7 @@ export default function AnimeDetails() {
                                                 key={rec.id}
                                                 href={targetUrl}
                                                 onClick={(e) => {
-                                                    // Let the browser fully handle right-click, Ctrl+click, or Middle-click natively
                                                     if (e.ctrlKey || e.metaKey || e.button === 1) return;
-
-                                                    // Intercept fast left-click navigation
                                                     e.preventDefault();
                                                     navigate(targetUrl);
                                                 }}

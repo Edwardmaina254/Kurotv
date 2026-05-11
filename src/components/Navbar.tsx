@@ -98,30 +98,55 @@ export default function Navbar() {
       setShowDropdown(true);
 
       try {
+        // 1. PRIMARY SEARCH: Jikan (MAL)
+        const jikanRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchQuery.trim())}&limit=5`);
+        const jikanData = await jikanRes.json();
+
+        if (jikanData?.data && jikanData.data.length > 0) {
+          // Map Jikan data to match your existing AniList UI structure
+          const mappedResults = jikanData.data.map(anime => ({
+            id: anime.mal_id,
+            title: {
+              english: anime.title_english || anime.title,
+              romaji: anime.title_japanese || anime.title
+            },
+            coverImage: {
+              extraLarge: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url
+            },
+            type: anime.type?.toUpperCase() || 'TV',
+            averageScore: anime.score ? anime.score * 10 : 0 // Normalizing 0-10 to 0-100
+          }));
+
+          setLiveResults(mappedResults);
+          return; // Exit if Jikan succeeds
+        }
+
+        // 2. SECONDARY SEARCH: AniList (Fallback if Jikan is empty or fails)
         const gqlQuery = `
-          query ($search: String) {
-            Page(page: 1, perPage: 5) {
-              media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-                id
-                title { english romaji }
-                coverImage { extraLarge }
-                type
-                averageScore
-              }
+        query ($search: String) {
+          Page(page: 1, perPage: 5) {
+            media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+              id
+              title { english romaji }
+              coverImage { extraLarge }
+              type
+              averageScore
             }
           }
-        `;
+        }
+      `;
 
-        const response = await fetch('https://graphql.anilist.co', {
+        const alResponse = await fetch('https://graphql.anilist.co', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ query: gqlQuery, variables: { search: searchQuery.trim() } })
         });
 
-        const data = await response.json();
-        if (data.data?.Page?.media) {
-          setLiveResults(data.data.Page.media);
+        const alData = await alResponse.json();
+        if (alData.data?.Page?.media) {
+          setLiveResults(alData.data.Page.media);
         }
+
       } catch (error) {
         console.error("Live search failed:", error);
       } finally {
