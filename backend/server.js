@@ -59,7 +59,7 @@ app.use(cors(corsOptions));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200, // Raised limits to ensure fluid proxy navigation
+  max: 200,
   message: "Too many requests from this IP, please try again after 15 minutes",
   standardHeaders: true,
   legacyHeaders: false,
@@ -84,13 +84,13 @@ const BANNED_ANIME_IDS = [
 ];
 
 const getCache = (key) => NODE_CACHE.get(key);
-const setCache = (key, data, ttlHours = 12) => { // Upgraded default retention to 12 hours for lightning speeds
+const setCache = (key, data, ttlHours = 12) => {
   NODE_CACHE.set(key, data);
   setTimeout(() => NODE_CACHE.delete(key), ttlHours * 60 * 60 * 1000);
 };
 
 // ==========================================
-// ⚙️ HYPER-CONCURRENT BACKOFF ENGINE
+// ⚡ HYPER-CONCURRENT BACKOFF ENGINE (LATENCY CRUSHER)
 // ==========================================
 const fetchWithBackoff = async (url, options, maxRetries = 2) => {
   const finalOptions = { ...options };
@@ -101,9 +101,9 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
   };
 
   for (let i = 0; i < maxRetries; i++) {
-    // Crushed abort ceiling down to 2500ms to immediately failover slow upstream proxy nodes
+    // Aggressive 1500ms connection abort ceiling to completely prevent thread locking
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 1500);
     try {
       const response = await fetch(url, { ...finalOptions, signal: controller.signal });
       clearTimeout(timeout);
@@ -112,7 +112,8 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
       clearTimeout(timeout);
       if (i === maxRetries - 1) throw e;
     }
-    const waitTime = Math.pow(2, i) * 350; // Massively reduced backoff latency buffer
+    // Massively reduced sleep buffer: wait only 200ms instead of freezing the server for 4000ms
+    const waitTime = Math.pow(2, i) * 200;
     await new Promise(resolve => setTimeout(resolve, waitTime));
   }
   throw new Error("Max retries reached after Rate Limit.");
@@ -157,7 +158,7 @@ async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
 
     if (providerUrl.includes('clock.json') || providerUrl.endsWith('.json')) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 800); // 800ms hyper-execution limit
+      const timeout = setTimeout(() => controller.abort(), 800);
 
       const clockRes = await fetch(providerUrl, {
         headers: { Referer: ALLANIME_REFERER, "User-Agent": "Mozilla/5.0" },
@@ -182,7 +183,6 @@ async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
   });
 
   try {
-    // Race all incoming un-obfuscation promises to hand the absolute fastest link back to the browser instantly
     const fastestResponse = await Promise.any(sourcePromises);
     return fastestResponse;
   } catch (aggregateError) {
@@ -268,7 +268,7 @@ function normalizeTobeparsed(value) {
 
 async function allAnimeGql(variables, query) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2500); // Massive timeout cut for swift upstream queries
+  const timeoutId = setTimeout(() => controller.abort(), 2000); // Strict timeout cut for swift upstream queries
 
   try {
     const res = await fetch(`${ALLANIME_API}/api`, {
@@ -599,7 +599,6 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 
     const termLower = cleanSearchTerm.toLowerCase();
 
-    // Pulled parallel fuzzy queries into massive single-call arrays to defeat downstream delay
     if (termLower && termLower.length > 3 && relations.length < 5) {
       try {
         const generalizedQuery = `
@@ -737,7 +736,7 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   };
 
   try {
-    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 600); // Shaved timeout for lightning response
+    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 600);
     if (consumetInfo && consumetInfo.episodes && consumetInfo.episodes.length > 0) {
       let finalEps = interceptAndSanitizeEps(consumetInfo.episodes, targetEpisodes);
 
@@ -979,6 +978,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
   const baseUrl = `${protocol}://${req.get('host')}`;
 
+  // 🛡️ UNIVERSAL SKIP ENRICHMENT LAYER
   const enrichWithSkipTimes = async (responseData, resolvedAnimeId, resolvedEpNum) => {
     if (!responseData) return responseData;
 

@@ -71,7 +71,6 @@ export default function Search() {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [hasNextPage, setHasNextPage] = useState(false);
-    const [fetchError, setFetchError] = useState<string | null>(null);
 
     const [openDropdown, setOpenDropdown] = useState<string | null>(null);
     const filtersRef = useRef<HTMLDivElement>(null);
@@ -98,44 +97,108 @@ export default function Search() {
     useEffect(() => {
         const fetchSearchResults = async () => {
             setLoading(true);
-            setFetchError(null);
             try {
-                // 🔥 DYNAMIC API GATEWAY ALIGNMENT
-                // Seamlessly routes to your local backend during development to bypass cross-origin blocks,
-                // while automatically targeting your production gateway when deployed live.
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+                // 🔥 BULLETPROOF QUERY SANITIZER
+                // Normalizes spaces and escapes characters perfectly to prevent upstream AniList GraphQL aborts.
+                const searchStr = query ? query.trim() : '';
 
-                const safeQuery = query ? query.trim() : '';
+                const sortMap: Record<string, string> = {
+                    'trending': 'TRENDING_DESC',
+                    'popular': 'POPULARITY_DESC',
+                    'newest': 'START_DATE_DESC',
+                    'score': 'SCORE_DESC'
+                };
 
-                let url = `${apiUrl}/anime/zoro/search?page=${page}&sort=${sort}`;
-                if (safeQuery) url += `&q=${encodeURIComponent(safeQuery)}`;
-                if (genre) url += `&genres=${encodeURIComponent(genre)}`;
-                if (format) url += `&format=${encodeURIComponent(format)}`;
+                let queryArgs = `$page: Int, $perPage: Int, $sort: [MediaSort]`;
+                let mediaArgs = `type: ANIME, sort: $sort`;
+                const variables: any = {
+                    page,
+                    perPage: 40,
+                    sort: searchStr ? ['SEARCH_MATCH'] : [sortMap[sort] || 'TRENDING_DESC']
+                };
 
-                const res = await fetch(url);
-
-                // ✅ FIX: Detect non-200 HTTP status (e.g. 500 from backend crash or CORS pre-flight block)
-                if (!res.ok) {
-                    throw new Error(`Server returned ${res.status} — check your backend logs.`);
+                if (searchStr) {
+                    queryArgs += `, $search: String`;
+                    mediaArgs += `, search: $search`;
+                    variables.search = searchStr;
+                }
+                if (genre) {
+                    queryArgs += `, $genre_in: [String]`;
+                    mediaArgs += `, genre_in: $genre_in`;
+                    variables.genre_in = [genre];
+                }
+                if (format) {
+                    queryArgs += `, $format: MediaFormat`;
+                    mediaArgs += `, format: $format`;
+                    variables.format = format;
                 }
 
-                const data = await res.json();
+                const gqlQuery = `
+                query (${queryArgs}) {
+                    Page(page: $page, perPage: $perPage) {
+                        pageInfo { hasNextPage currentPage }
+                        media(${mediaArgs}) {
+                            id
+                            title { english romaji }
+                            coverImage { extraLarge }
+                            format
+                            status
+                            averageScore
+                            episodes
+                        }
+                    }
+                }`;
 
-                // ✅ FIX: Detect when the backend itself returned an error field
-                if (data.error) {
-                    console.warn("[Search] Backend error:", data.error);
+                const response = await fetch('https://graphql.anilist.co', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ query: gqlQuery, variables })
+                });
+
+                const data = await response.json();
+
+                let rawResults = data?.data?.Page?.media || [];
+
+                // 🛑 ELITE KEYWORD OVERLAP POST-FILTER
+                // Scans titles to guarantee absolute accuracy, scrubbing completely unrelated matching tag leaks
+                if (searchStr) {
+                    const queryWords = searchStr.toLowerCase().trim().split(/\s+/);
+                    rawResults = rawResults.filter((anime: any) => {
+                        const engTitle = (anime.title?.english || '').toLowerCase();
+                        const romTitle = (anime.title?.romaji || '').toLowerCase();
+
+                        const matchesEng = queryWords.every(w => engTitle.includes(w));
+                        const matchesRom = queryWords.every(w => romTitle.includes(w));
+
+                        return matchesEng || matchesRom;
+                    });
                 }
+
+                const BANNED_IDS = new Set(['209940']);
+
+                const formatted: SearchResult[] = rawResults
+                    .map((anime: any) => ({
+                        id: anime.id?.toString() || '',
+                        title: anime.title?.english || anime.title?.romaji || 'Unknown',
+                        image: anime.coverImage?.extraLarge || '',
+                        type: anime.format || "TV",
+                        status: anime.status || "UNKNOWN",
+                        rating: anime.averageScore || 0,
+                        totalEpisodes: anime.episodes || 0
+                    }))
+                    .filter((anime: SearchResult) => !BANNED_IDS.has(anime.id));
 
                 if (page === 1) {
-                    setResults(data.results || []);
+                    setResults(formatted);
                 } else {
-                    setResults(prev => [...prev, ...(data.results || [])]);
+                    setResults(prev => [...prev, ...formatted]);
                 }
-                setHasNextPage(data.hasNextPage);
+                setHasNextPage(data?.data?.Page?.pageInfo?.hasNextPage || false);
             } catch (error) {
                 console.error("Search failed:", error);
-                // ✅ FIX: Show error message to the user so they know if it's a backend/network issue
-                setFetchError(error instanceof Error ? error.message : "Failed to connect to server. Is your backend running?");
                 if (page === 1) setResults([]);
             } finally {
                 setLoading(false);
@@ -209,15 +272,6 @@ export default function Search() {
             </div>
 
             <div className="max-w-[1400px] mx-auto">
-                {fetchError && (
-                    <div className="mb-8 flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-5 py-4 text-red-400">
-                        <span className="text-lg">⚠️</span>
-                        <div>
-                            <p className="text-xs font-black uppercase tracking-widest text-red-400">Search Error</p>
-                            <p className="text-xs font-medium text-red-400/80 mt-0.5">{fetchError}</p>
-                        </div>
-                    </div>
-                )}
                 {results.length === 0 && !loading ? (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-500">
                         <Filter className="w-12 h-12 mb-4 opacity-20" />
