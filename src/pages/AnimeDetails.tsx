@@ -5,7 +5,7 @@ import { type AnimeDetails as AnimeDetailsType, type Episode } from '../services
 import {
     Bookmark, ArrowLeft, Play, Pause, Loader2, Star,
     Maximize, Minimize, Volume2, VolumeX, Settings,
-    RotateCcw, RotateCw, Check, ChevronRight
+    RotateCcw, RotateCw, Check, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { supabase } from '../lib/supabase';
@@ -31,6 +31,12 @@ interface ExtendedAnimeDetails extends AnimeDetailsType {
     type?: string;
     releaseDate?: string;
     relations?: Relation[];
+    episodes: Episode[];
+    _shortLabel?: string;
+    _extractedSeason?: number;
+    _extractedPart?: number;
+    _sortScore?: number;
+    _franchiseOverride?: boolean;
 }
 
 const formatTime = (time: number) => {
@@ -44,15 +50,15 @@ export default function AnimeDetails() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
 
-    const [anime, setAnime] = useState<ExtendedAnimeDetails | null>(null);
+    const [chronologicalSeasons, setChronologicalSeasons] = useState<ExtendedAnimeDetails[]>([]);
+    const [playingSeasonId, setPlayingSeasonId] = useState<string | null>(null);
+
     const [malId, setMalId] = useState<number | null>(null);
     const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
 
-    // ⚡ Separated Loading States for Maximum Speed & Bug Fixes
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [episodesLoading, setEpisodesLoading] = useState(true);
-    const [recommendationsLoading, setRecommendationsLoading] = useState(true); // ⚡ THE FIX: Dedicated rec loading state
+    const [recommendationsLoading, setRecommendationsLoading] = useState(true);
 
     const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
     const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
@@ -74,9 +80,25 @@ export default function AnimeDetails() {
     const [currentQuality, setCurrentQuality] = useState<number>(-1);
     const [showSettings, setShowSettings] = useState(false);
 
+    const [autoPlay, setAutoPlay] = useState<boolean>(() => localStorage.getItem('kuro-auto-play') !== 'false');
+    const [autoSkip, setAutoSkip] = useState<boolean>(() => localStorage.getItem('kuro-auto-skip') === 'true');
+    const [autoNext, setAutoNext] = useState<boolean>(() => localStorage.getItem('kuro-auto-next') !== 'false');
+
+    const toggleSetting = (key: string, currentVal: boolean, setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+        const newVal = !currentVal;
+        setter(newVal);
+        localStorage.setItem(key, newVal.toString());
+    };
+
     const [skipTimes, setSkipTimes] = useState<{ op: { start: number, end: number } | null, ed: { start: number, end: number } | null }>({ op: null, ed: null });
 
+    const bingeSettingsRef = useRef({ autoPlay, autoSkip, autoNext, skipTimes });
+    useEffect(() => {
+        bingeSettingsRef.current = { autoPlay, autoSkip, autoNext, skipTimes };
+    }, [autoPlay, autoSkip, autoNext, skipTimes]);
+
     const videoRef = useRef<HTMLVideoElement>(null);
+    const seasonsScrollRef = useRef<HTMLDivElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -97,16 +119,18 @@ export default function AnimeDetails() {
         playerStateRef.current = { volume, currentTime, duration, isPlaying };
     }, [volume, currentTime, duration, isPlaying]);
 
+    const primarySeason = chronologicalSeasons.find(s => s.id.toString() === id) || chronologicalSeasons[0];
+
     useEffect(() => {
-        if (anime && activeEpisode) {
-            document.title = `Watch ${anime.title} Episode ${activeEpisode.number} - KuroTV`;
-        } else if (anime) {
-            document.title = `${anime.title} - KuroTV`;
+        if (primarySeason && activeEpisode) {
+            document.title = `Watch ${primarySeason.title} Episode ${activeEpisode.number} - KuroTV`;
+        } else if (primarySeason) {
+            document.title = `${primarySeason.title} - KuroTV`;
         } else {
             document.title = 'KuroTV';
         }
         return () => { document.title = 'KuroTV'; };
-    }, [anime, activeEpisode]);
+    }, [primarySeason, activeEpisode]);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -120,12 +144,12 @@ export default function AnimeDetails() {
 
     useEffect(() => {
         const checkWatchlistStatus = async () => {
-            if (user && anime) {
+            if (user && primarySeason) {
                 const { data } = await supabase
                     .from('watchlist')
                     .select('id')
                     .eq('user_id', user.id)
-                    .eq('anime_id', anime.id.toString())
+                    .eq('anime_id', primarySeason.id.toString())
                     .maybeSingle();
                 if (data) setIsInWatchlist(true);
                 else setIsInWatchlist(false);
@@ -134,23 +158,23 @@ export default function AnimeDetails() {
             }
         };
         checkWatchlistStatus();
-    }, [user, anime]);
+    }, [user, primarySeason]);
 
     const toggleWatchlist = async () => {
         if (!user) {
             alert("Please sign in to add this anime to your watchlist!");
             return;
         }
-        if (!anime) return;
+        if (!primarySeason) return;
         setWatchlistLoading(true);
         try {
             if (isInWatchlist) {
-                const { error } = await supabase.from('watchlist').delete().eq('user_id', user.id).eq('anime_id', anime.id.toString());
+                const { error } = await supabase.from('watchlist').delete().eq('user_id', user.id).eq('anime_id', primarySeason.id.toString());
                 if (error) throw error;
                 setIsInWatchlist(false);
             } else {
                 const { error } = await supabase.from('watchlist').insert([
-                    { user_id: user.id, anime_id: anime.id.toString(), title: anime.title, image: anime.image || anime.bannerImage, type: anime.type || 'TV' }
+                    { user_id: user.id, anime_id: primarySeason.id.toString(), title: primarySeason.title, image: primarySeason.image || primarySeason.bannerImage, type: primarySeason.type || 'TV' }
                 ]);
                 if (error) throw error;
                 setIsInWatchlist(true);
@@ -165,112 +189,416 @@ export default function AnimeDetails() {
 
     useEffect(() => {
         setLoading(true);
-        setEpisodesLoading(true);
-        setAnime(null);
+        setChronologicalSeasons([]);
         setActiveEpisode(null);
+        setPlayingSeasonId(null);
         setStreamData(null);
         setIsFetchingStream(false);
         setStreamError(null);
         setSkipTimes({ op: null, ed: null });
         lastSavedTimeRef.current = 0;
 
-        if (hlsInstance) { hlsInstance.destroy(); setHlsInstance(null); }
-        if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute('src'); videoRef.current.load(); }
+        if (hlsInstance) {
+            hlsInstance.detachMedia();
+            hlsInstance.destroy();
+            setHlsInstance(null);
+        }
+        if (videoRef.current) {
+            videoRef.current.pause();
+            videoRef.current.removeAttribute('src');
+            videoRef.current.load();
+        }
 
-        const fetchDetails = async () => {
+        const cancelRef = { cancelled: false };
+
+        const fetchFullChronology = async () => {
+            if (!id) return;
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+
             try {
-                if (id) {
-                    const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
-                    const [infoRes, malDataRes] = await Promise.all([
-                        fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null),
-                        fetch('https://graphql.anilist.co', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query: `query($id:Int){Media(id:$id){idMal}}`, variables: { id: parseInt(id) } })
-                        }).then(r => r.json()).catch(() => null)
-                    ]);
+                const initialInfoRes = await fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null);
+                const initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
 
-                    const infoData = infoRes && infoRes.ok ? await infoRes.json() : null;
-
-                    if (infoData && infoData.title) {
-                        setAnime({ ...infoData, episodes: [] } as ExtendedAnimeDetails);
-                        setLoading(false);
-
-                        if (malDataRes?.data?.Media?.idMal) {
-                            setMalId(malDataRes.data.Media.idMal);
-                        }
-
-                        fetchEpisodes(infoData);
-                    } else {
-                        setError("Anime data not found.");
-                        setLoading(false);
-                        setEpisodesLoading(false);
-                    }
+                if (!initialInfo || !initialInfo.title) {
+                    setError("Anime data not found.");
+                    setLoading(false);
+                    return;
                 }
-            } catch (err) {
-                setError("Network error occurred.");
-                setLoading(false);
-                setEpisodesLoading(false);
-            }
-        };
 
-        const fetchEpisodes = async (infoData: ExtendedAnimeDetails) => {
-            try {
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
-                const epsRes = await fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null);
-                const epsJson = epsRes && epsRes.ok ? await epsRes.json() : { episodes: [] };
-                const epsData = epsJson.episodes || [];
+                const relatedIds = (initialInfo.relations || [])
+                    .map((r: Relation) => parseInt(r.id.toString()))
+                    .filter((n: number) => !isNaN(n));
 
-                setAnime(prev => prev ? { ...prev, episodes: epsData } : { ...infoData, episodes: epsData });
+                const titleLower = (initialInfo.title || '').toLowerCase();
 
-                const watched = new Set<string>();
-                epsData.forEach((ep: Episode) => {
-                    if (localStorage.getItem(`kuro-watched-${id}-${ep.id}`) === 'true') {
-                        watched.add(ep.id.toString());
+                const chainCollected = new Set<number>([parseInt(id), ...relatedIds]);
+
+                const isJojoContext = titleLower.includes('jojo') ||
+                    titleLower.includes('phantom blood') ||
+                    titleLower.includes('stardust crusaders') ||
+                    titleLower.includes('diamond is unbreakable') ||
+                    titleLower.includes('golden wind') ||
+                    titleLower.includes('stone ocean') ||
+                    titleLower.includes('steel ball run');
+
+                const isMhaContext = titleLower.includes('my hero academia') ||
+                    titleLower.includes('boku no hero academia');
+
+                if (isJojoContext) {
+                    [14719, 20474, 20799, 21440, 36361, 102883, 127720, 131586, 163262].forEach(fid => chainCollected.add(fid));
+                } else if (titleLower.includes('attack on titan') || titleLower.includes('shingeki no kyojin')) {
+                    [16498, 20958, 99147, 104578, 110277, 131681, 142856].forEach(fid => chainCollected.add(fid));
+                } else if (titleLower.includes('demon slayer') || titleLower.includes('kimetsu no yaiba')) {
+                    [101922, 127230, 121031, 128851, 142329, 166240, 171424].forEach(fid => chainCollected.add(fid));
+                } else if (isMhaContext) {
+                    [21459, 21856, 100166, 104276, 117193, 139630, 163139, 182896].forEach(fid => chainCollected.add(fid));
+                }
+
+                const allIdsToFetch = Array.from(chainCollected);
+
+                const sortingQuery = `
+                    query($ids: [Int]) {
+                        Page(page: 1, perPage: 50) {
+                            media(id_in: $ids, type: ANIME) {
+                                id idMal startDate { year month day } format status averageScore description genres bannerImage coverImage { extraLarge } title { english romaji }
+                            }
+                        }
+                    }
+                `;
+
+                await new Promise(res => setTimeout(res, 350));
+
+                const [sortingRes, ...episodesResponses] = await Promise.all([
+                    fetch('https://graphql.anilist.co', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: sortingQuery, variables: { ids: allIdsToFetch } })
+                    }).then(r => r.json()).catch(() => null),
+
+                    ...allIdsToFetch.map(seasonId =>
+                        fetch(`${apiUrl}/anime/zoro/episodes/${seasonId}`)
+                            .then(r => r.json())
+                            .catch(() => ({ episodes: [] }))
+                    )
+                ]);
+
+                const rawMediaNodes = sortingRes?.data?.Page?.media || [];
+
+                const targetMalNode = rawMediaNodes.find((m: any) => m.id.toString() === id);
+                if (targetMalNode?.idMal) setMalId(targetMalNode.idMal);
+
+                const episodesMap = new Map();
+                allIdsToFetch.forEach((seasonId, index) => {
+                    episodesMap.set(seasonId.toString(), episodesResponses[index]?.episodes || []);
+                });
+
+                const compiledSeasons: ExtendedAnimeDetails[] = rawMediaNodes.map((m: any) => {
+                    const year = m.startDate?.year || 9999;
+                    const month = m.startDate?.month || 1;
+                    const day = m.startDate?.day || 1;
+                    const sortScore = year * 10000 + month * 100 + day;
+
+                    let dispTitle = initialInfo.id.toString() === m.id.toString() ? initialInfo.title : (m.title?.english || m.title?.romaji || "");
+                    if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
+                        const fmt = m.format === 'TV' ? 'Season' : (m.format || 'Entry');
+                        dispTitle = `${initialInfo.title?.split('Season')[0]?.trim() || 'Anime'} (${fmt})`;
+                    }
+
+                    return {
+                        id: m.id.toString(),
+                        title: dispTitle,
+                        image: m.coverImage?.extraLarge || "",
+                        bannerImage: m.bannerImage || m.coverImage?.extraLarge || "",
+                        description: m.description || "No synopsis available.",
+                        genres: m.genres || [],
+                        rating: m.averageScore || "N/A",
+                        status: m.status || "UNKNOWN",
+                        type: m.format || "TV",
+                        releaseDate: m.startDate?.year ? `${m.startDate.year}-${m.startDate.month || 1}-${m.startDate.day || 1}` : "Unknown",
+                        episodes: episodesMap.get(m.id.toString()) || [],
+                        _sortScore: sortScore
+                    };
+                });
+
+                let isolatedSeasons = compiledSeasons;
+                if (isJojoContext) {
+                    isolatedSeasons = compiledSeasons.filter(s => {
+                        if (s.id.toString() === id) return true;
+                        const t = (s.title || '').toLowerCase();
+                        return t.includes('jojo') ||
+                            t.includes('phantom blood') ||
+                            t.includes('stardust') ||
+                            t.includes('diamond is unbreakable') ||
+                            t.includes('golden wind') ||
+                            t.includes('stone ocean') ||
+                            t.includes('steel ball run') ||
+                            t.includes('kishibe rohan');
+                    });
+                } else if (titleLower.includes('attack on titan') || titleLower.includes('shingeki no kyojin')) {
+                    isolatedSeasons = compiledSeasons.filter(s => {
+                        if (s.id.toString() === id) return true;
+                        const t = (s.title || '').toLowerCase();
+                        return t.includes('attack on titan') || t.includes('shingeki no kyojin');
+                    });
+                } else if (titleLower.includes('demon slayer') || titleLower.includes('kimetsu no yaiba')) {
+                    isolatedSeasons = compiledSeasons.filter(s => {
+                        if (s.id.toString() === id) return true;
+                        const t = (s.title || '').toLowerCase();
+                        return t.includes('demon slayer') || t.includes('kimetsu no yaiba');
+                    });
+                } else if (isMhaContext) {
+                    const mhaIds = new Set(['21459', '21856', '100166', '104276', '117193', '139630', '163139', '182896']);
+                    isolatedSeasons = compiledSeasons.filter(s =>
+                        mhaIds.has(s.id.toString()) || (s.title || '').toLowerCase().includes('hero academia')
+                    );
+                } else if (titleLower.includes('wistoria') || titleLower.includes('tsue to tsurugi')) {
+                    isolatedSeasons = compiledSeasons.filter(s => {
+                        if (s.id.toString() === id) return true;
+                        const t = (s.title || '').toLowerCase();
+                        return t.includes('wistoria') || t.includes('tsue to tsurugi');
+                    });
+                } else if (titleLower.includes('mashle')) {
+                    const mashleIds = new Set(['150672', '163132']);
+                    isolatedSeasons = compiledSeasons.filter(s =>
+                        mashleIds.has(s.id.toString()) || (s.title || '').toLowerCase().includes('mashle')
+                    );
+                } else if (
+                    titleLower.includes('one punch') ||
+                    titleLower.includes('one-punch') ||
+                    titleLower.includes('onepunch') ||
+                    titleLower.includes('wan panchi')
+                ) {
+                    // 🔥 SWAPPED TO CANONICAL ANILIST IDs FOR ONE-PUNCH MAN
+                    const opmIds = new Set(['21087', '97668']);
+                    isolatedSeasons = compiledSeasons.filter(s =>
+                        opmIds.has(s.id.toString()) || s.id.toString() === id
+                    );
+                }
+
+                isolatedSeasons.sort((a: any, b: any) => a._sortScore - b._sortScore);
+
+                const ID_OVERRIDES: Record<number, string> = {
+                    14719: 'Season 1',
+                    20474: 'Season 2 Part 1',
+                    20799: 'Season 2 Part 2',
+                    21440: 'Season 3',
+                    36361: 'Season 4',
+                    102883: 'Season 5 Part 1',
+                    127720: 'Season 5 Part 2',
+                    131586: 'Season 6 Part 1',
+                    163262: 'Season 6 Part 2',
+                    16498: 'Season 1',
+                    20958: 'Season 2',
+                    99147: 'Season 3 Part 1',
+                    104578: 'Season 3 Part 2',
+                    110277: 'Season 4 Part 1',
+                    131681: 'Season 4 Part 2',
+                    142856: 'Season 4 Part 3',
+                    101922: 'Season 1',
+                    127230: 'Season 2 Part 1',
+                    121031: 'Season 2 Part 2',
+                    128851: 'Season 3',
+                    142329: 'Season 4',
+                    166240: 'Season 5 Part 1',
+                    171424: 'Season 5 Part 2',
+                    // 🔥 CANONICAL ANILIST IDs FOR ONE-PUNCH MAN
+                    21087: 'Season 1',
+                    97668: 'Season 2',
+                    108465: 'Season 1',
+                    133632: 'Season 2 Part 1',
+                    145139: 'Season 2 Part 2',
+                    79120: 'Season 1',
+                    108632: 'Season 2 Part 1',
+                    116193: 'Season 2 Part 2',
+                    136456: 'Season 3',
+                    101280: 'Season 1',
+                    112707: 'Season 2 Part 1',
+                    118456: 'Season 2 Part 2',
+                    29803: 'Season 1',
+                    98426: 'Season 2',
+                    101347: 'Season 3',
+                    120725: 'Season 4',
+                    20583: 'Season 1',
+                    20954: 'Season 2',
+                    23273: 'Season 3',
+                    99426: 'Season 4 Part 1',
+                    110939: 'Season 4 Part 2',
+                    11757: 'Season 1',
+                    20594: 'Season 2',
+                    21881: 'Season 3 Part 1',
+                    98706: 'Season 3 Part 2',
+                    105749: 'Season 2',
+                    177634: 'Season 3',
+                    269: 'Season 1',
+                    41461: 'Thousand Year Blood War Part 1',
+                    145064: 'Thousand Year Blood War Part 2',
+                    166922: 'Thousand Year Blood War Part 3',
+                    150672: 'Season 1',
+                    163132: 'Season 2',
+                    97940: 'Season 1',
+                    237: 'Season 1',
+                    9760: 'Season 2',
+                    101348: 'Season 1',
+                    136430: 'Season 2',
+                    140960: 'Season 1 Part 1',
+                    148110: 'Season 1 Part 2',
+                    161645: 'Season 2',
+                    130003: 'Season 1',
+                    127526: 'Season 1',
+                    154587: 'Season 1',
+                    153518: 'Season 1',
+                    145439: 'Season 1',
+                    170942: 'Season 2',
+                    21459: 'Season 1',
+                    21856: 'Season 2',
+                    100166: 'Season 3',
+                    104276: 'Season 4',
+                    117193: 'Season 5',
+                    139630: 'Season 6',
+                    163139: 'Season 7',
+                    182896: 'Season 8'
+                };
+
+                isolatedSeasons.forEach(s => {
+                    const numericId = parseInt(s.id.toString());
+                    const fmt = (s.type || '').toUpperCase();
+                    if (['MOVIE', 'OVA', 'MUSIC'].includes(fmt)) return;
+                    if (ID_OVERRIDES[numericId] !== undefined) {
+                        s._shortLabel = ID_OVERRIDES[numericId];
+                        s._franchiseOverride = true;
+                        s.type = 'TV';
                     }
                 });
-                setWatchedEpisodes(watched);
 
-                let targetEp = null;
+                // 🔥 DUPLICATE-FREE SEQUENTIAL LABELLING
+                // Sorts everything by air date first, then auto-numbers non-override entries
+                // while syncing the counter to existing overrides to guarantee zero label conflicts.
+                const mainline: ExtendedAnimeDetails[] = [];
+                const extras: ExtendedAnimeDetails[] = [];
+
+                isolatedSeasons.forEach(s => {
+                    const fmt = (s.type || '').toUpperCase();
+                    if (fmt === 'MOVIE') { s._shortLabel = 'Movie'; extras.push(s); }
+                    else if (['OVA', 'SPECIAL', 'ONA', 'MUSIC'].includes(fmt)) {
+                        s._shortLabel = fmt === 'OVA' ? 'OVA' : fmt === 'ONA' ? 'ONA' : 'Special';
+                        extras.push(s);
+                    } else {
+                        mainline.push(s);
+                    }
+                });
+
+                mainline.sort((a: any, b: any) => a._sortScore - b._sortScore);
+
+                let rollingSeasonNumber = 1;
+                mainline.forEach((s) => {
+                    if (s._franchiseOverride && s._shortLabel) {
+                        const extractedNumMatch = s._shortLabel.match(/Season\s*(\d+)/i);
+                        if (extractedNumMatch) {
+                            rollingSeasonNumber = parseInt(extractedNumMatch[1], 10) + 1;
+                        }
+                    } else {
+                        s._shortLabel = `Season ${rollingSeasonNumber}`;
+                        rollingSeasonNumber++;
+                    }
+                });
+
+                extras.sort((a: any, b: any) => a._sortScore - b._sortScore);
+                const allMainline = mainline;
+
+                const combined = [...allMainline, ...extras];
+                let pruned = combined.filter(s => {
+                    if (s.id.toString() === id) return true;
+                    return (s.episodes || []).length > 0;
+                });
+
+                if (pruned.length === 0) pruned = combined;
+
+                const finalOrdered = pruned;
+
+                if (cancelRef.cancelled) return;
+                setChronologicalSeasons(finalOrdered);
+                setLoading(false);
+
+                if (cancelRef.cancelled) return;
+                const globalWatched = new Set<string>();
+                isolatedSeasons.forEach(season => {
+                    (season.episodes || []).forEach(ep => {
+                        if (localStorage.getItem(`kuro-watched-${season.id}-${ep.id}`) === 'true') {
+                            globalWatched.add(ep.id.toString());
+                        }
+                    });
+                });
+                setWatchedEpisodes(globalWatched);
+
+                let targetEpToPlay = null;
+                let seasonContextId = id;
                 const queryParams = new URLSearchParams(window.location.search);
                 const epFromUrl = queryParams.get('ep');
 
-                if (epFromUrl && epsData.length > 0) {
-                    targetEp = epsData.find((e: Episode) => e.id.toString() === epFromUrl.toString());
+                if (epFromUrl) {
+                    for (const s of isolatedSeasons) {
+                        const found = (s.episodes || []).find(e => e.id.toString() === epFromUrl.toString());
+                        if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
+                    }
                 }
 
-                if (!targetEp && epsData.length > 0) {
+                if (!targetEpToPlay) {
                     const { data: sessionData } = await supabase.auth.getSession();
+                    if (cancelRef.cancelled) return;
                     const currentUser = sessionData?.session?.user;
                     if (currentUser) {
-                        const { data } = await supabase.from('watch_history').select('episode_id').eq('user_id', currentUser.id).eq('anime_id', id!.toString()).maybeSingle();
+                        const { data } = await supabase.from('watch_history').select('episode_id, anime_id').eq('user_id', currentUser.id).eq('anime_id', id.toString()).maybeSingle();
+                        if (cancelRef.cancelled) return;
                         if (data && data.episode_id) {
-                            targetEp = epsData.find((e: Episode) => e.id.toString() === data.episode_id.toString());
+                            const foundSeason = isolatedSeasons.find(s => s.id.toString() === data.anime_id?.toString()) || isolatedSeasons.find(s => s.id.toString() === id);
+                            if (foundSeason) {
+                                const foundEp = (foundSeason.episodes || []).find(e => e.id.toString() === data.episode_id?.toString());
+                                if (foundEp) { targetEpToPlay = foundEp; seasonContextId = foundSeason.id; }
+                            }
                         }
                     }
                 }
 
-                if (!targetEp && epsData.length > 0) {
+                if (!targetEpToPlay) {
                     const localLastEp = localStorage.getItem(`kuro-last-ep-${id}`);
-                    if (localLastEp) targetEp = epsData.find((e: Episode) => e.id.toString() === localLastEp);
+                    if (localLastEp) {
+                        for (const s of isolatedSeasons) {
+                            const found = (s.episodes || []).find(e => e.id.toString() === localLastEp);
+                            if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
+                        }
+                    }
                 }
 
-                if (!targetEp && epsData.length > 0) targetEp = epsData[0];
-                if (targetEp) handlePlayEpisode(targetEp);
+                if (!targetEpToPlay) {
+                    const currentRequestedSeason = isolatedSeasons.find(s => s.id.toString() === id) || isolatedSeasons[0];
+                    if (currentRequestedSeason && currentRequestedSeason.episodes && currentRequestedSeason.episodes.length > 0) {
+                        targetEpToPlay = currentRequestedSeason.episodes[0];
+                        seasonContextId = currentRequestedSeason.id;
+                    }
+                }
+
+                if (!cancelRef.cancelled && targetEpToPlay && seasonContextId) {
+                    handlePlayEpisode(targetEpToPlay, seasonContextId);
+                }
+
             } catch (err) {
-                console.error("Failed to fetch episodes", err);
-            } finally {
-                setEpisodesLoading(false);
+                if (!cancelRef.cancelled) {
+                    console.error("Chronological compilation failed:", err);
+                    setError("Failed to compile chronological seasons.");
+                    setLoading(false);
+                }
             }
         };
 
-        fetchDetails();
+        fetchFullChronology();
+
+        return () => { cancelRef.cancelled = true; };
     }, [id]);
 
     useEffect(() => {
         const fetchRecommendations = async () => {
             if (!id) return;
-            setRecommendationsLoading(true); // ⚡ THE FIX: explicitly set to loading when ID changes
+            setRecommendationsLoading(true);
             try {
                 const query = `
                     query($id: Int) {
@@ -298,33 +626,44 @@ export default function AnimeDetails() {
                 console.error('Failed to fetch recommendations:', e);
                 setRecommendations([]);
             } finally {
-                setRecommendationsLoading(false); // ⚡ THE FIX: Ensures the spinner always stops, even if 0 results
+                setRecommendationsLoading(false);
             }
         };
         fetchRecommendations();
     }, [id]);
 
     useEffect(() => {
-        if (malId && activeEpisode) {
+        let targetMal = malId;
+        if (!targetMal && primarySeason) {
+            const explicitMal = (primarySeason as any).idMal;
+            if (explicitMal) targetMal = explicitMal;
+        }
+
+        if (targetMal && activeEpisode) {
             const epNum = parseInt(activeEpisode.number.toString());
-            fetch(`https://api.aniskip.com/v2/skip-times/${malId}/${epNum}?types=op&types=ed&episodeLength=0`)
+            fetch(`https://api.aniskip.com/v2/skip-times/${targetMal}/${epNum}?types=op&types=ed&episodeLength=0`)
                 .then(res => res.json())
                 .then(data => {
                     if (data.found) {
                         const op = data.results?.find((r: any) => r.skipType === 'op');
                         const ed = data.results?.find((r: any) => r.skipType === 'ed');
-                        setSkipTimes(prev => ({
-                            op: prev.op || (op ? { start: op.interval.startTime, end: op.interval.endTime } : null),
-                            ed: prev.ed || (ed ? { start: ed.interval.startTime, end: ed.interval.endTime } : null)
-                        }));
+                        setSkipTimes({
+                            op: op ? { start: op.interval.startTime, end: op.interval.endTime } : null,
+                            ed: ed ? { start: ed.interval.startTime, end: ed.interval.endTime } : null
+                        });
+                    } else {
+                        setSkipTimes({ op: null, ed: null });
                     }
-                }).catch(() => { });
+                }).catch(() => { setSkipTimes({ op: null, ed: null }); });
+        } else {
+            setSkipTimes({ op: null, ed: null });
         }
-    }, [malId, activeEpisode]);
+    }, [malId, primarySeason, activeEpisode]);
 
-    const handlePlayEpisode = async (episode: Episode, forceMode?: 'sub' | 'dub') => {
+    const handlePlayEpisode = async (episode: Episode, parentSeasonId: string, forceMode?: 'sub' | 'dub') => {
         const modeToUse = forceMode || audioMode;
         setActiveEpisode(episode);
+        setPlayingSeasonId(parentSeasonId);
         setIsFetchingStream(true);
         setStreamData(null);
         setStreamError(null);
@@ -332,11 +671,21 @@ export default function AnimeDetails() {
         setSkipTimes({ op: null, ed: null });
         lastSavedTimeRef.current = 0;
 
-        setCurrentTime(0);
-        if (videoRef.current) videoRef.current.currentTime = 0;
+        if (hlsInstance) {
+            hlsInstance.detachMedia();
+            hlsInstance.destroy();
+            setHlsInstance(null);
+        }
+        if (videoRef.current) {
+            videoRef.current.pause();
+            videoRef.current.removeAttribute('src');
+            videoRef.current.load();
+        }
 
-        window.history.replaceState(null, '', `/anime/${id}?ep=${encodeURIComponent(episode.id)}`);
-        localStorage.setItem(`kuro-last-ep-${id}`, episode.id.toString());
+        setCurrentTime(0);
+
+        window.history.replaceState(null, '', `/anime/${parentSeasonId}?ep=${encodeURIComponent(episode.id)}`);
+        localStorage.setItem(`kuro-last-ep-${parentSeasonId}`, episode.id.toString());
 
         setTimeout(() => {
             const activeBtn = document.getElementById(`ep-btn-${episode.id}`);
@@ -346,8 +695,10 @@ export default function AnimeDetails() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
-            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}`;
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+
+            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}`;
+
             const res = await fetch(backendUrl);
             const data = await res.json();
 
@@ -396,13 +747,54 @@ export default function AnimeDetails() {
         }
     };
 
+    const SKIP_OFFSET = 0.5;
+
+    const handleSkipIntro = () => {
+        if (videoRef.current && skipTimes.op) {
+            const targetTime = skipTimes.op.end + SKIP_OFFSET;
+            videoRef.current.currentTime = targetTime;
+            setCurrentTime(targetTime);
+        }
+    };
+
+    const handleSkipOutro = () => {
+        if (videoRef.current && skipTimes.ed) {
+            const targetTime = skipTimes.ed.end;
+            videoRef.current.currentTime = targetTime;
+            setCurrentTime(targetTime);
+        }
+    };
+
+    const handleNextEpisode = () => {
+        if (!playingSeasonId || !activeEpisode) return;
+        const currentActiveSeasonObj = chronologicalSeasons.find(s => s.id === playingSeasonId);
+        if (!currentActiveSeasonObj || !currentActiveSeasonObj.episodes) return;
+
+        const currentEpList = currentActiveSeasonObj.episodes;
+        const currentIndex = currentEpList.findIndex(ep => ep.id === activeEpisode.id);
+
+        if (currentIndex !== -1 && currentIndex < currentEpList.length - 1) {
+            const nextEp = currentEpList[currentIndex + 1];
+            handlePlayEpisode(nextEp, playingSeasonId);
+        }
+        else if (currentIndex === currentEpList.length - 1) {
+            const currentSeasonIndex = chronologicalSeasons.findIndex(s => s.id === playingSeasonId);
+            if (currentSeasonIndex !== -1 && currentSeasonIndex < chronologicalSeasons.length - 1) {
+                const nextSeasonObj = chronologicalSeasons[currentSeasonIndex + 1];
+                if (nextSeasonObj && nextSeasonObj.episodes && nextSeasonObj.episodes.length > 0) {
+                    handlePlayEpisode(nextSeasonObj.episodes[0], nextSeasonObj.id);
+                }
+            }
+        }
+    };
+
     useEffect(() => {
         if (!streamData || !videoRef.current || streamData.isIframe) return;
         const video = videoRef.current;
         let hls: Hls | null = null;
         setQualities([]);
 
-        const progressKey = `kuro-progress-${id}-${activeEpisode?.id}`;
+        const progressKey = `kuro-progress-${playingSeasonId}-${activeEpisode?.id}`;
 
         const restoreProgress = () => {
             const savedTime = localStorage.getItem(progressKey);
@@ -425,18 +817,34 @@ export default function AnimeDetails() {
                 const availableQualities = data.levels.map((level, index) => ({ height: level.height, level: index }));
                 setQualities(availableQualities.reverse());
                 restoreProgress();
-                video.play().catch(() => console.warn("Autoplay prevented"));
+                if (autoPlay) {
+                    video.play().catch(() => console.warn("Autoplay prevented"));
+                }
             });
 
             setHlsInstance(hls);
         } else {
             video.src = streamData.url;
-            video.addEventListener('loadedmetadata', restoreProgress, { once: true });
-            video.play().catch(() => console.warn("Autoplay prevented"));
+            video.addEventListener('loadedmetadata', () => {
+                restoreProgress();
+                if (autoPlay) {
+                    video.play().catch(() => console.warn("Autoplay prevented"));
+                }
+            }, { once: true });
         }
 
-        return () => { if (hls) hls.destroy(); };
-    }, [streamData, id, activeEpisode?.id]);
+        return () => {
+            if (hls) {
+                hls.detachMedia();
+                hls.destroy();
+            }
+            if (video) {
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+            }
+        };
+    }, [streamData, playingSeasonId, activeEpisode?.id, autoPlay]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -457,10 +865,10 @@ export default function AnimeDetails() {
 
             switch (e.key) {
                 case 'ArrowRight':
-                    if (videoRef.current) videoRef.current.currentTime = Math.min(ct + 10, d);
+                    if (videoRef.current) videoRef.current.currentTime = Math.min(ct + 5, d);
                     break;
                 case 'ArrowLeft':
-                    if (videoRef.current) videoRef.current.currentTime = Math.max(ct - 10, 0);
+                    if (videoRef.current) videoRef.current.currentTime = Math.max(ct - 5, 0);
                     break;
                 case 'ArrowUp':
                     const newVolUp = Math.min(v + 0.1, 1);
@@ -492,13 +900,38 @@ export default function AnimeDetails() {
 
     useEffect(() => {
         const video = videoRef.current;
-        if (!video || !activeEpisode || !anime) return;
+        if (!video || !activeEpisode || !playingSeasonId) return;
 
-        const progressKey = `kuro-progress-${id}-${activeEpisode.id}`;
-        const watchedKey = `kuro-watched-${id}-${activeEpisode.id}`;
+        const currentActiveSeasonObj = chronologicalSeasons.find(s => s.id === playingSeasonId);
+        if (!currentActiveSeasonObj) return;
+
+        const progressKey = `kuro-progress-${playingSeasonId}-${activeEpisode.id}`;
+        const watchedKey = `kuro-watched-${playingSeasonId}-${activeEpisode.id}`;
 
         const onTimeUpdate = () => {
             setCurrentTime(video.currentTime);
+
+            const { autoSkip: currentAutoSkip, autoNext: currentAutoNext, skipTimes: currentSkips } = bingeSettingsRef.current;
+
+            if (currentAutoSkip && currentSkips.op) {
+                if (video.currentTime >= currentSkips.op.start && video.currentTime < currentSkips.op.end - 0.8) {
+                    const exactTarget = currentSkips.op.end + SKIP_OFFSET;
+                    video.currentTime = exactTarget;
+                    setCurrentTime(exactTarget);
+                }
+            }
+
+            if (currentAutoSkip && currentSkips.ed) {
+                if (video.currentTime >= currentSkips.ed.start && video.currentTime < currentSkips.ed.end - 0.8) {
+                    const exactTarget = currentSkips.ed.end;
+                    video.currentTime = exactTarget;
+                    setCurrentTime(exactTarget);
+                }
+            }
+
+            if (currentAutoNext && video.duration > 0 && (video.duration - video.currentTime) <= 1.5) {
+                handleNextEpisode();
+            }
 
             if (video.currentTime > 5 && video.duration > 0) {
                 if (video.duration - video.currentTime < 30) {
@@ -516,11 +949,11 @@ export default function AnimeDetails() {
                         lastSavedTimeRef.current = video.currentTime;
                         supabase.from('watch_history').upsert({
                             user_id: user.id,
-                            anime_id: id?.toString(),
+                            anime_id: playingSeasonId,
                             episode_id: activeEpisode.id.toString(),
                             episode_number: activeEpisode.number,
-                            anime_title: anime.title,
-                            anime_image: anime.image || anime.bannerImage,
+                            anime_title: currentActiveSeasonObj.title,
+                            anime_image: currentActiveSeasonObj.image || currentActiveSeasonObj.bannerImage,
                             progress: video.currentTime,
                             duration: video.duration,
                             updated_at: new Date().toISOString()
@@ -553,7 +986,7 @@ export default function AnimeDetails() {
             video.removeEventListener('waiting', onWaiting);
             video.removeEventListener('playing', onPlaying);
         };
-    }, [streamData, id, activeEpisode, user, anime]);
+    }, [streamData, playingSeasonId, activeEpisode, user, chronologicalSeasons]);
 
     const togglePlay = () => {
         if (videoRef.current) {
@@ -636,49 +1069,12 @@ export default function AnimeDetails() {
         }
     };
 
-    const SKIP_OFFSET = 1.5;
-
-    const handleSkipIntro = () => {
-        if (videoRef.current && skipTimes.op) {
-            const targetTime = skipTimes.op.end + SKIP_OFFSET;
-            videoRef.current.currentTime = targetTime;
-            setCurrentTime(targetTime);
-        }
-    };
-
-    const handleSkipOutro = () => {
-        if (videoRef.current && skipTimes.ed) {
-            const targetTime = skipTimes.ed.end;
-            videoRef.current.currentTime = targetTime;
-            setCurrentTime(targetTime);
-        }
-    };
-
-    const handleNextEpisode = () => {
-        if (!anime || !activeEpisode) return;
-        const currentIndex = anime.episodes.findIndex(ep => ep.id === activeEpisode.id);
-        if (currentIndex !== -1 && currentIndex < anime.episodes.length - 1) {
-            const nextEp = anime.episodes[currentIndex + 1];
-            handlePlayEpisode(nextEp);
-        }
-    };
-
-    useEffect(() => {
-        const isAutoSkipEnabled = localStorage.getItem('kuro-auto-skip') === 'true';
-        if (isAutoSkipEnabled && videoRef.current) {
-            if (skipTimes.op && currentTime >= skipTimes.op.start && currentTime < skipTimes.op.end - 0.5) {
-                handleSkipIntro();
-            }
-        }
-    }, [currentTime, skipTimes]);
-
     const showSkipOp = skipTimes.op && currentTime >= skipTimes.op.start && currentTime <= skipTimes.op.end;
     const showSkipEd = skipTimes.ed && currentTime >= skipTimes.ed.start && currentTime <= skipTimes.ed.end;
 
-    const showNextEpPrompt = duration > 0 && (duration - currentTime <= 40) && (duration - currentTime > 5);
-    const hasNextEpisode = anime && activeEpisode && anime.episodes.findIndex(ep => ep.id === activeEpisode.id) < anime.episodes.length - 1;
-
     const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+    const currentPlayingSeasonObj = chronologicalSeasons.find(s => s.id === playingSeasonId) || primarySeason;
 
     if (loading) {
         return (
@@ -688,8 +1084,13 @@ export default function AnimeDetails() {
         );
     }
 
-    if (error || !anime) return <div className="min-h-screen flex items-center justify-center bg-black"><h2 className="text-2xl font-bold text-white">Error Loading Anime</h2></div>;
-    const hasEpisodes = anime.episodes && anime.episodes.length > 0;
+    if (error || chronologicalSeasons.length === 0) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-black">
+                <h2 className="text-2xl font-bold text-white">Error Loading Chronological Anime</h2>
+            </div>
+        );
+    }
 
     return (
         <div className="w-full min-h-screen bg-black text-gray-300 font-sans pb-24 pt-24 px-4 sm:px-8">
@@ -700,14 +1101,16 @@ export default function AnimeDetails() {
                         <ArrowLeft className="w-3 h-3 mr-1.5" /> Back
                     </button>
                     <span className="text-gray-700">/</span>
-                    <span className="hover:text-white transition-colors">{anime.type || "TV Series"}</span>
+                    <span className="hover:text-white transition-colors">{primarySeason?.type || "TV Series"}</span>
                     <span className="text-gray-700">/</span>
-                    <span className="text-white">Watching <span className="text-blue-500">{anime.title}</span></span>
+                    <span className="text-white">Watching <span className="text-blue-500">{primarySeason?.title}</span></span>
                 </div>
 
                 <div className="flex flex-col xl:flex-row gap-5 items-start">
-                    <div className="flex-1 min-w-0">
-                        <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111]">
+                    <div className="flex-1 min-w-0 w-full">
+
+                        {/* 1. THE MEDIA PLAYER */}
+                        <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111] mb-6">
                             <div
                                 ref={playerContainerRef}
                                 className={`w-full aspect-video bg-black relative rounded-lg overflow-hidden flex items-center justify-center border border-[#111] group ${!isMouseActive && isPlaying ? 'cursor-none [&_*]:cursor-none' : ''}`}
@@ -768,18 +1171,6 @@ export default function AnimeDetails() {
                                                             Skip Outro <span className="opacity-50 text-[10px] font-bold ml-1 bg-black/10 px-1.5 py-0.5 rounded">S</span>
                                                         </button>
                                                     )}
-
-                                                    {showNextEpPrompt && hasNextEpisode && (
-                                                        <button
-                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleNextEpisode(); }}
-                                                            className="bg-[#111]/90 backdrop-blur-md hover:bg-blue-600 text-white px-6 py-4 rounded-sm font-black text-[12px] uppercase tracking-tighter transition-all shadow-2xl flex flex-col items-start gap-1 cursor-pointer border-l-4 border-blue-500 group animate-in fade-in slide-in-from-right-8 duration-500"
-                                                        >
-                                                            <span className="text-[9px] text-blue-400 group-hover:text-white/80 transition-colors">Up Next</span>
-                                                            <div className="flex items-center gap-2">
-                                                                Episode {parseInt(activeEpisode!.number.toString()) + 1} <ChevronRight className="w-4 h-4" />
-                                                            </div>
-                                                        </button>
-                                                    )}
                                                 </div>
 
                                                 <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-16 pb-4 px-6 z-40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -817,21 +1208,21 @@ export default function AnimeDetails() {
 
                                                     <div className="flex items-center justify-between pointer-events-auto">
                                                         <div className="flex items-center gap-5">
-                                                            <button onClick={togglePlay} className="text-white hover:text-blue-400 transition-colors z-50 relative">
+                                                            <button onClick={togglePlay} className="text-white hover:text-blue-400 transition-colors z-50 relative cursor-pointer">
                                                                 {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                                                             </button>
 
                                                             <div className="flex items-center gap-3 z-50 relative">
-                                                                <button onClick={() => skipTime(-10)} className="text-white/80 hover:text-white transition-colors">
+                                                                <button onClick={() => skipTime(-10)} className="text-white/80 hover:text-white transition-colors cursor-pointer">
                                                                     <RotateCcw className="w-5 h-5" />
                                                                 </button>
-                                                                <button onClick={() => skipTime(10)} className="text-white/80 hover:text-white transition-colors">
+                                                                <button onClick={() => skipTime(10)} className="text-white/80 hover:text-white transition-colors cursor-pointer">
                                                                     <RotateCw className="w-5 h-5" />
                                                                 </button>
                                                             </div>
 
                                                             <div className="flex items-center gap-2 group/volume relative z-50">
-                                                                <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors">
+                                                                <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors cursor-pointer">
                                                                     {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                                                                 </button>
                                                                 <input
@@ -846,11 +1237,11 @@ export default function AnimeDetails() {
                                                         </div>
 
                                                         <div className="flex items-center gap-5 relative z-50">
-                                                            <button onClick={() => setShowSettings(!showSettings)} className={`text-white/80 hover:text-white transition-transform duration-300 ${showSettings ? 'rotate-90 text-blue-400' : ''}`}>
+                                                            <button onClick={() => setShowSettings(!showSettings)} className={`text-white/80 hover:text-white transition-transform duration-300 cursor-pointer ${showSettings ? 'rotate-90 text-blue-400' : ''}`}>
                                                                 <Settings className="w-5 h-5" />
                                                             </button>
 
-                                                            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors">
+                                                            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors cursor-pointer">
                                                                 {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                                                             </button>
 
@@ -859,11 +1250,11 @@ export default function AnimeDetails() {
                                                                     <span className="text-[10px] font-black text-gray-500 px-2 py-1 uppercase tracking-widest">Quality</span>
                                                                     {qualities.length > 0 ? (
                                                                         <>
-                                                                            <button onClick={() => changeQuality(-1)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between ${currentQuality === -1 ? 'text-blue-400' : 'text-white'}`}>
+                                                                            <button onClick={() => changeQuality(-1)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === -1 ? 'text-blue-400' : 'text-white'}`}>
                                                                                 Auto {currentQuality === -1 && <Check className="w-3 h-3" />}
                                                                             </button>
                                                                             {qualities.map(q => (
-                                                                                <button key={q.level} onClick={() => changeQuality(q.level)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between ${currentQuality === q.level ? 'text-blue-400' : 'text-white'}`}>
+                                                                                <button key={q.level} onClick={() => changeQuality(q.level)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === q.level ? 'text-blue-400' : 'text-white'}`}>
                                                                                     {q.height}p {currentQuality === q.level && <Check className="w-3 h-3" />}
                                                                                 </button>
                                                                             ))}
@@ -887,33 +1278,63 @@ export default function AnimeDetails() {
                                     </div>
                                 ) : (
                                     <>
-                                        <img src={anime.bannerImage || anime.image} alt={anime.title} className="absolute inset-0 w-full h-full object-cover opacity-20 blur-md grayscale-[40%]" />
+                                        <img src={currentPlayingSeasonObj?.bannerImage || currentPlayingSeasonObj?.image} alt={currentPlayingSeasonObj?.title} className="absolute inset-0 w-full h-full object-cover opacity-20 blur-md grayscale-[40%]" />
                                         <div className="absolute inset-0 bg-black/80" />
                                         <div className="z-10 flex flex-col items-center gap-4">
                                             <Play className="w-16 h-16 text-white opacity-90" />
-                                            {hasEpisodes ? (
-                                                <button onClick={() => handlePlayEpisode(activeEpisode || anime.episodes[0])} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs transition-colors shadow-lg relative z-50">
-                                                    Watch Episode {activeEpisode?.number || 1}
+                                            {currentPlayingSeasonObj?.episodes && currentPlayingSeasonObj.episodes.length > 0 ? (
+                                                <button onClick={() => handlePlayEpisode(currentPlayingSeasonObj.episodes![0], currentPlayingSeasonObj.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs transition-colors shadow-lg relative z-50 cursor-pointer">
+                                                    Watch Episode 1
                                                 </button>
                                             ) : (
-                                                <div className="bg-transparent border border-[#333] text-gray-400 px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs">Not Yet Aired</div>
+                                                <div className="bg-transparent border border-[#333] text-gray-400 px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs">Transmission Pending</div>
                                             )}
                                         </div>
                                     </>
                                 )}
                             </div>
 
+                            {/* 🔥 INJECTED CONTROLS & BINGE BUTTONS BAR */}
                             <div className="flex flex-col lg:flex-row gap-6 mt-4 px-2 items-center justify-between">
-                                <div className="text-center lg:text-left">
-                                    <p className="text-sm text-gray-400">You are watching <span className="text-white font-black">Episode {activeEpisode?.number || 1}</span></p>
-                                    <p className="text-[10px] text-gray-600 mt-1 uppercase tracking-wide font-bold">If current server doesn't work please try other servers.</p>
+                                <div className="text-center lg:text-left w-full lg:w-auto">
+                                    <p className="text-sm text-gray-400">
+                                        Watching <span className="text-blue-400 font-bold">{currentPlayingSeasonObj?.title}</span> <span className="text-white font-black ml-1">Episode {activeEpisode?.number || 1}</span>
+                                    </p>
+
+                                    {/* BINGE AUTOMATION CONTROLS ROW */}
+                                    <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 mt-2.5 bg-[#0a0a0a] border border-[#1a1a1a] px-3 py-1.5 rounded-lg w-fit mx-auto lg:mx-0">
+                                        <button
+                                            onClick={() => toggleSetting('kuro-auto-play', autoPlay, setAutoPlay)}
+                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoPlay ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${autoPlay ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
+                                            AutoPlay
+                                        </button>
+                                        <span className="text-[#222]">|</span>
+                                        <button
+                                            onClick={() => toggleSetting('kuro-auto-skip', autoSkip, setAutoSkip)}
+                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoSkip ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${autoSkip ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
+                                            AutoSkip Intro/Outro
+                                        </button>
+                                        <span className="text-[#222]">|</span>
+                                        <button
+                                            onClick={() => toggleSetting('kuro-auto-next', autoNext, setAutoNext)}
+                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoNext ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${autoNext ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
+                                            AutoNext Ep
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-3">
+
+                                <div className="flex flex-col items-end gap-3 mt-2 lg:mt-0">
                                     <div className="flex items-center gap-3">
                                         <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex-shrink-0">Audio:</span>
                                         <div className="flex bg-[#111] p-1 rounded-md border border-[#222]">
-                                            <button onClick={() => { setAudioMode('sub'); if (activeEpisode) handlePlayEpisode(activeEpisode, 'sub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors ${audioMode === 'sub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>SUB</button>
-                                            <button onClick={() => { setAudioMode('dub'); if (activeEpisode) handlePlayEpisode(activeEpisode, 'dub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors ${audioMode === 'dub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>DUB</button>
+                                            <button onClick={() => { setAudioMode('sub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'sub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${audioMode === 'sub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>SUB</button>
+                                            <button onClick={() => { setAudioMode('dub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'dub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${audioMode === 'dub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>DUB</button>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
@@ -923,7 +1344,7 @@ export default function AnimeDetails() {
                                                 <button
                                                     key={srv}
                                                     onClick={() => handleServerChange(srv)}
-                                                    className={`px-4 py-1.5 rounded-md text-[11px] font-bold shadow-md transition-colors ${activeServer === srv ? 'bg-blue-600 text-white' : 'bg-[#111] border border-[#222] text-gray-400 hover:text-white'}`}
+                                                    className={`px-4 py-1.5 rounded-md text-[11px] font-bold shadow-md transition-colors cursor-pointer ${activeServer === srv ? 'bg-blue-600 text-white' : 'bg-[#111] border border-[#222] text-gray-400 hover:text-white'}`}
                                                 >
                                                     {srv}
                                                 </button>
@@ -934,133 +1355,185 @@ export default function AnimeDetails() {
                             </div>
                         </div>
 
-                        <div className="mt-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
-                            <div className="flex items-center gap-4 mb-4">
-                                <div className="flex-1 h-[1px] bg-[#111]"></div>
-                                <h3 className="text-sm font-black uppercase tracking-widest text-white">Episodes</h3>
-                                <div className="flex-1 h-[1px] bg-[#111]"></div>
-                            </div>
+                        {/* 2. THE EPISODES GRID */}
+                        {chronologicalSeasons.map((seasonObj) => {
+                            const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
+                            if (!isCurrentlyPlayingThisSeason) return null;
+                            const seasonEps = seasonObj.episodes || [];
+                            const hasEps = seasonEps.length > 0;
 
-                            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2 p-1">
-                                {episodesLoading ? (
-                                    <div className="col-span-full py-8 flex items-center justify-center gap-3 text-gray-500">
-                                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                                        <span className="font-bold tracking-widest uppercase text-xs">Syncing...</span>
+                            return (
+                                <div key={`chrono-ep-block-${seasonObj.id}`} className="mb-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <div className="flex-1 h-[1px] bg-[#111]"></div>
+                                        <h3 className="text-sm font-black uppercase tracking-widest text-white">Episodes</h3>
+                                        <div className="flex-1 h-[1px] bg-[#111]"></div>
                                     </div>
-                                ) : hasEpisodes ? (
-                                    anime.episodes.map((ep) => {
-                                        const isWatched = watchedEpisodes.has(ep.id.toString());
-                                        const isActive = activeEpisode?.id?.toString() === ep.id.toString();
+
+                                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2 p-1">
+                                        {loading ? (
+                                            <div className="col-span-full py-8 flex items-center justify-center gap-3 text-gray-500">
+                                                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                                                <span className="font-bold tracking-widest uppercase text-xs">Syncing...</span>
+                                            </div>
+                                        ) : hasEps ? (
+                                            seasonEps.map((ep) => {
+                                                const isWatched = watchedEpisodes.has(ep.id.toString());
+                                                const isActive = activeEpisode?.id?.toString() === ep.id.toString();
+
+                                                return (
+                                                    <button
+                                                        key={`ep-grid-btn-${ep.id}`}
+                                                        id={isActive ? `ep-btn-${ep.id}` : undefined}
+                                                        onClick={() => handlePlayEpisode(ep, seasonObj.id)}
+                                                        className={`relative h-10 rounded border transition-all duration-300 flex items-center justify-center font-bold text-xs overflow-hidden cursor-pointer
+                                                            ${isActive
+                                                                ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] scale-[1.05] z-10'
+                                                                : isWatched
+                                                                    ? 'bg-[#0a0a0a] border-[#222] text-gray-500 hover:text-gray-300 hover:border-gray-500'
+                                                                    : 'bg-[#111] border-[#333] text-gray-300 hover:bg-[#222] hover:text-white hover:border-blue-500/50'
+                                                            }`}
+                                                    >
+                                                        {ep.number}
+                                                        {isWatched && !isActive && (
+                                                            <div className="absolute bottom-0 left-0 w-full h-[3px] bg-gray-600/50" />
+                                                        )}
+                                                        {isActive && (
+                                                            <div className="absolute bottom-0 left-0 w-full h-[3px] bg-white/40" />
+                                                        )}
+                                                    </button>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="col-span-full py-8 text-center text-gray-500 font-bold uppercase text-xs">Transmission Pending</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* 3. THE SEASONS SELECTOR */}
+                        {chronologicalSeasons.length > 1 && (
+                            <div className="bg-[#030303] rounded-xl border border-[#111] w-full overflow-hidden mb-6">
+                                <div className="flex items-center justify-between px-5 py-3 border-b border-[#111]">
+                                    <h3 className="text-xs font-black uppercase tracking-widest text-white">Seasons</h3>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => { if (seasonsScrollRef.current) seasonsScrollRef.current.scrollBy({ left: -280, behavior: 'smooth' }); }}
+                                            className="w-7 h-7 rounded-full bg-[#111] border border-[#1e1e1e] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer z-20"
+                                        >
+                                            <ChevronLeft className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { if (seasonsScrollRef.current) seasonsScrollRef.current.scrollBy({ left: 280, behavior: 'smooth' }); }}
+                                            className="w-7 h-7 rounded-full bg-[#111] border border-[#1e1e1e] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer z-20"
+                                        >
+                                            <ChevronRight className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div ref={seasonsScrollRef} className="flex gap-3 px-4 py-4 overflow-x-auto scroll-smooth w-full relative z-10" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                                    {chronologicalSeasons.map((s) => {
+                                        const isActive = playingSeasonId === s.id;
+                                        const epCount = s.episodes?.length || 0;
 
                                         return (
                                             <button
-                                                key={ep.id}
-                                                id={`ep-btn-${ep.id}`}
-                                                onClick={() => handlePlayEpisode(ep)}
-                                                className={`relative h-10 rounded border transition-all duration-300 flex items-center justify-center font-bold text-xs overflow-hidden
-                                            ${isActive
-                                                        ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] scale-[1.05] z-10'
-                                                        : isWatched
-                                                            ? 'bg-[#0a0a0a] border-[#222] text-gray-500 hover:text-gray-300 hover:border-gray-500'
-                                                            : 'bg-[#111] border-[#333] text-gray-300 hover:bg-[#222] hover:text-white hover:border-blue-500/50'
-                                                    }`}
+                                                key={`stab-${s.id}`}
+                                                onClick={() => {
+                                                    if (s.id.toString() === id) {
+                                                        const fe = s.episodes?.[0];
+                                                        if (fe) handlePlayEpisode(fe, s.id);
+                                                    } else {
+                                                        navigate(`/anime/${s.id}`);
+                                                    }
+                                                }}
+                                                className={`relative flex-shrink-0 w-[140px] rounded-xl overflow-hidden border transition-all duration-300 group cursor-pointer ${isActive ? 'border-blue-500 shadow-[0_0_18px_rgba(37,99,235,0.35)]' : 'border-[#1a1a1a] hover:border-blue-500/40'}`}
                                             >
-                                                {ep.number}
-                                                {isWatched && !isActive && (
-                                                    <div className="absolute bottom-0 left-0 w-full h-[3px] bg-gray-600/50" />
-                                                )}
-                                                {isActive && (
-                                                    <div className="absolute bottom-0 left-0 w-full h-[3px] bg-white/40" />
-                                                )}
-                                            </button>
-                                        );
-                                    })
-                                ) : (
-                                    <div className="col-span-full py-8 text-center text-gray-500 font-bold uppercase text-xs">Transmission Pending</div>
-                                )}
-                            </div>
-                        </div>
+                                                <div className="relative h-[95px] w-full overflow-hidden bg-[#050505]">
+                                                    <img src={s.image} alt={s.title} className="absolute inset-0 w-full h-full object-cover scale-110 group-hover:scale-125 transition-transform duration-700" />
+                                                    <div className="absolute inset-0 bg-black/50 group-hover:bg-black/30 transition-colors duration-300" />
 
-                        {anime.relations && anime.relations.length > 0 && (
-                            <div className="mt-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
-                                <div className="flex items-center gap-4 mb-4">
-                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
-                                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Related Seasons</h3>
-                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
-                                </div>
-
-                                <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2">
-                                    {anime.relations.map((rel) => {
-                                        let displayRelation = rel.relationType.replace('_', ' ');
-                                        if (rel.relationType === 'SEQUEL') displayRelation = "Next Season";
-                                        if (rel.relationType === 'PREQUEL') displayRelation = "Previous Season";
-                                        if (rel.relationType === 'ALTERNATIVE') displayRelation = "Alternative Setting";
-
-                                        return (
-                                            <div
-                                                key={rel.id}
-                                                onClick={() => navigate(`/anime/${rel.id}`)}
-                                                className="flex-shrink-0 w-32 group cursor-pointer"
-                                            >
-                                                <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-[#111] group-hover:border-blue-500/50 transition-all">
-                                                    <img src={rel.image} alt={rel.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                    <div className="absolute bottom-2 left-2 right-2">
-                                                        <span className="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">{rel.type}</span>
+                                                    <div className="absolute inset-x-0 bottom-0 bg-black/75 backdrop-blur-md py-1 px-1.5 text-center border-t border-white/10 z-20">
+                                                        <p className="text-[9px] font-black text-white tracking-wider uppercase truncate">
+                                                            {s._shortLabel || s.title}
+                                                        </p>
                                                     </div>
+
+                                                    {isActive && <div className="absolute top-2 right-2 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded z-20">ON</div>}
+                                                    {!isActive && <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10"><div className="w-8 h-8 bg-blue-600/90 rounded-full flex items-center justify-center"><Play className="w-3.5 h-3.5 fill-current text-white ml-0.5" /></div></div>}
                                                 </div>
-                                                <h4 className="text-[10px] font-bold mt-2 line-clamp-2 group-hover:text-blue-400 transition-colors">{rel.title}</h4>
-                                                <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest mt-0.5">{displayRelation}</p>
-                                            </div>
+                                                <div className={`px-3 py-2 transition-colors duration-300 ${isActive ? 'bg-blue-600/15' : 'bg-[#0a0a0a] group-hover:bg-[#111]'}`}>
+                                                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest truncate">{epCount > 0 ? `${epCount} Eps` : s.type || 'TV'}</p>
+                                                </div>
+                                            </button>
                                         );
                                     })}
                                 </div>
                             </div>
                         )}
 
-                        <div className="mt-6 flex flex-col md:flex-row gap-8">
-                            <div className="w-full md:w-[220px] flex-shrink-0 flex flex-col gap-4">
-                                <div className="aspect-[2/3] rounded-lg overflow-hidden border border-[#111]">
-                                    <img src={anime.image} alt={anime.title} className="w-full h-full object-cover grayscale-[10%]" />
-                                </div>
-                                <button
-                                    onClick={toggleWatchlist}
-                                    disabled={watchlistLoading}
-                                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-md transition-colors border font-bold text-xs uppercase tracking-widest ${isInWatchlist
-                                        ? 'bg-blue-600 text-white border-blue-500 hover:bg-red-600 hover:border-red-500'
-                                        : 'bg-[#050505] text-white border-[#111] hover:bg-white hover:text-black'
-                                        }`}
-                                >
-                                    {watchlistLoading ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                        <Bookmark className={`w-4 h-4 ${isInWatchlist ? 'fill-current' : ''}`} />
-                                    )}
-                                    {isInWatchlist ? 'Remove from List' : 'Add to List'}
-                                </button>
-                            </div>
+                        {/* 4. THE DETAILS CARD */}
+                        <div className="flex flex-col gap-8">
+                            {chronologicalSeasons.map((seasonObj) => {
+                                const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
+                                if (!isCurrentlyPlayingThisSeason) return null;
+                                const seasonEps = seasonObj.episodes || [];
+                                const hasEps = seasonEps.length > 0;
 
-                            <div className="flex-1 flex flex-col">
-                                <h1 className="text-3xl font-black mb-4 text-white leading-tight">{anime.title}</h1>
-                                <p className="text-gray-400 text-sm leading-relaxed mb-6">{anime.description?.replace(/<[^>]*>/g, '') || "No synopsis available."}</p>
+                                return (
+                                    <div key={`chrono-block-${seasonObj.id}`} className="bg-[#030303] rounded-xl p-5 border border-[#111]">
+                                        <div className="flex flex-col sm:flex-row gap-6 items-start">
+                                            <div className="w-full sm:w-[160px] shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] relative">
+                                                <img src={seasonObj.image} alt={seasonObj.title} className="w-full h-full object-cover" />
+                                            </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm bg-[#030303] p-5 rounded-xl border border-[#111]">
-                                    <div className="flex gap-2"><span className="font-bold text-gray-500 w-24">Type:</span><span className="text-gray-300 font-medium">{anime.type || "TV"}</span></div>
-                                    <div className="flex gap-2"><span className="font-bold text-gray-500 w-24">Status:</span><span className="text-gray-300 font-medium">{anime.status || "Unknown"}</span></div>
-                                    <div className="flex gap-2"><span className="font-bold text-gray-500 w-24">Date Aired:</span><span className="text-gray-300 font-medium">{anime.releaseDate || "Unknown"}</span></div>
-                                    <div className="flex gap-2"><span className="font-bold text-gray-500 w-24">Score:</span><span className="text-gray-300 font-medium flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" /> {anime.rating || "N/A"}</span></div>
-                                    <div className="flex gap-2 col-span-full mt-2">
-                                        <span className="font-bold text-gray-500 w-24 shrink-0">Genres:</span>
-                                        <div className="flex flex-wrap gap-2">
-                                            {anime.genres?.map(genre => <span key={genre} className="text-[10px] border border-[#111] bg-[#0a0a0a] text-gray-300 px-2 py-1 rounded-sm uppercase tracking-wide">{genre}</span>)}
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="text-xl font-black text-white mb-2 leading-tight">{seasonObj.title}</h3>
+                                                <p className="text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4 font-medium">
+                                                    {seasonObj.description?.replace(/<[^>]*>/g, '') || "No synopsis available."}
+                                                </p>
+
+                                                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs bg-[#080808] p-3 rounded-lg border border-[#111]">
+                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Status:</span><span className="text-gray-300 font-medium">{seasonObj.status}</span></div>
+                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Aired:</span><span className="text-gray-300 font-medium">{seasonObj.releaseDate}</span></div>
+                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Score:</span><span className="text-gray-300 font-medium flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-yellow-500" /> {seasonObj.rating}</span></div>
+                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Episodes:</span><span className="text-gray-300 font-medium">{hasEps ? seasonEps.length : '--'}</span></div>
+                                                </div>
+
+                                                <div className="flex flex-wrap gap-1.5 mt-3">
+                                                    {seasonObj.genres?.map(genre => <span key={genre} className="text-[9px] border border-[#1a1a1a] bg-[#0a0a0a] text-gray-400 px-2 py-0.5 rounded uppercase tracking-wider">{genre}</span>)}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="mt-8 flex items-center justify-start">
+                            <button
+                                onClick={toggleWatchlist}
+                                disabled={watchlistLoading}
+                                className={`flex items-center justify-center gap-2 px-8 py-3 rounded-md transition-colors border font-bold text-xs uppercase tracking-widest cursor-pointer ${isInWatchlist
+                                    ? 'bg-blue-600 text-white border-blue-500 hover:bg-red-600 hover:border-red-500'
+                                    : 'bg-[#050505] text-white border-[#111] hover:bg-white hover:text-black'
+                                    }`}
+                            >
+                                {watchlistLoading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Bookmark className={`w-4 h-4 ${isInWatchlist ? 'fill-current' : ''}`} />
+                                )}
+                                {isInWatchlist ? 'Remove from List' : 'Add to List'}
+                            </button>
                         </div>
 
                     </div>
 
+                    {/* 🔥 ITEM 1 POLISH: RECOMMENDATIONS SIDEBAR NATIVE ANCHOR SUPPORT */}
                     <div className="w-full xl:w-[360px] flex-shrink-0">
                         <div className="sticky top-24 bg-[#050505] rounded-xl border border-[#111] overflow-hidden">
                             <div className="px-4 py-3 border-b border-[#111] flex items-center justify-between">
@@ -1076,7 +1549,6 @@ export default function AnimeDetails() {
                                 className="flex flex-col divide-y divide-[#0d0d0d] overflow-y-auto"
                                 style={{ maxHeight: 'calc(100vh - 160px)', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                             >
-                                {/* ⚡ THE FIX: Properly handles empty recommendations state */}
                                 {recommendationsLoading ? (
                                     <div className="py-12 flex flex-col items-center justify-center gap-2">
                                         <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -1087,43 +1559,54 @@ export default function AnimeDetails() {
                                         <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">No recommendations found</span>
                                     </div>
                                 ) : (
-                                    recommendations.map((rec) => (
-                                        <div
-                                            key={rec.id}
-                                            onClick={() => navigate(`/anime/${rec.id}`)}
-                                            className="flex gap-3 p-3 hover:bg-[#0a0a0a] transition-colors cursor-pointer group"
-                                        >
-                                            <div className="relative w-[75px] h-[102px] flex-shrink-0 rounded-md overflow-hidden border border-[#1a1a1a] group-hover:border-blue-500/40 transition-colors">
-                                                <img
-                                                    src={rec.coverImage.large}
-                                                    alt={rec.title.english || rec.title.romaji}
-                                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                                                />
-                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                                    <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
-                                                        <Play className="w-3 h-3 fill-current text-white ml-0.5" />
-                                                    </div>
-                                                </div>
-                                            </div>
+                                    recommendations.map((rec) => {
+                                        const targetUrl = `/anime/${rec.id}`;
+                                        return (
+                                            <a
+                                                key={rec.id}
+                                                href={targetUrl}
+                                                onClick={(e) => {
+                                                    // Let the browser fully handle right-click, Ctrl+click, or Middle-click natively
+                                                    if (e.ctrlKey || e.metaKey || e.button === 1) return;
 
-                                            <div className="flex flex-col justify-between flex-1 min-w-0 py-0.5">
-                                                <div>
-                                                    <h4 className="text-[11px] font-bold text-gray-200 group-hover:text-blue-400 transition-colors line-clamp-2 leading-snug mb-2">
-                                                        {rec.title.english || rec.title.romaji}
-                                                    </h4>
-                                                    <span className="text-[9px] font-black bg-[#111] border border-[#1e1e1e] text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                                        {rec.type}
-                                                    </span>
-                                                </div>
-                                                {rec.averageScore && (
-                                                    <div className="flex items-center gap-1 mt-2">
-                                                        <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                                                        <span className="text-[10px] font-black text-gray-400">{rec.averageScore}</span>
+                                                    // Intercept fast left-click navigation
+                                                    e.preventDefault();
+                                                    navigate(targetUrl);
+                                                }}
+                                                className="flex gap-3 p-3 hover:bg-[#0a0a0a] transition-colors cursor-pointer group block"
+                                            >
+                                                <div className="relative w-[75px] h-[102px] flex-shrink-0 rounded-md overflow-hidden border border-[#1a1a1a] group-hover:border-blue-500/40 transition-colors">
+                                                    <img
+                                                        src={rec.coverImage.large}
+                                                        alt={rec.title.english || rec.title.romaji}
+                                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                        <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
+                                                            <Play className="w-3 h-3 fill-current text-white ml-0.5" />
+                                                        </div>
                                                     </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))
+                                                </div>
+
+                                                <div className="flex flex-col justify-between flex-1 min-w-0 py-0.5">
+                                                    <div>
+                                                        <h4 className="text-[11px] font-bold text-gray-200 group-hover:text-blue-400 transition-colors line-clamp-2 leading-snug mb-2">
+                                                            {rec.title.english || rec.title.romaji}
+                                                        </h4>
+                                                        <span className="text-[9px] font-black bg-[#111] border border-[#1e1e1e] text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                                            {rec.type}
+                                                        </span>
+                                                    </div>
+                                                    {rec.averageScore && (
+                                                        <div className="flex items-center gap-1 mt-2">
+                                                            <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                                                            <span className="text-[10px] font-black text-gray-400">{rec.averageScore}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </a>
+                                        );
+                                    })
                                 )}
                             </div>
                         </div>

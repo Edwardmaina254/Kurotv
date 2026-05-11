@@ -32,7 +32,7 @@ const FilterDropdown = ({
         <div className="relative">
             <button
                 onClick={onToggle}
-                className="flex items-center justify-between w-full min-w-[160px] bg-[#111] border border-[#222] hover:border-[#333] rounded-lg py-2.5 px-4 text-xs font-bold uppercase tracking-widest text-gray-300 transition-colors shadow-inner"
+                className="flex items-center justify-between w-full min-w-[160px] bg-[#111] border border-[#222] hover:border-[#333] rounded-lg py-2.5 px-4 text-xs font-bold uppercase tracking-widest text-gray-300 transition-colors shadow-inner cursor-pointer"
             >
                 <span className="truncate pr-2">
                     {value ? options.find(o => o.value === value)?.label || label : label}
@@ -44,7 +44,7 @@ const FilterDropdown = ({
                 <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[200px] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] py-2 z-50 flex flex-col max-h-[300px] overflow-y-auto custom-scrollbar">
                     <button
                         onClick={() => onChange('')}
-                        className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between ${!value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
+                        className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${!value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
                     >
                         {label} {!value && <Check className="w-3.5 h-3.5" />}
                     </button>
@@ -52,7 +52,7 @@ const FilterDropdown = ({
                         <button
                             key={opt.value}
                             onClick={() => onChange(opt.value)}
-                            className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between ${value === opt.value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
+                            className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${value === opt.value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
                         >
                             {opt.label} {value === opt.value && <Check className="w-3.5 h-3.5" />}
                         </button>
@@ -71,6 +71,7 @@ export default function Search() {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [hasNextPage, setHasNextPage] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     const [openDropdown, setOpenDropdown] = useState<string | null>(null);
     const filtersRef = useRef<HTMLDivElement>(null);
@@ -97,14 +98,33 @@ export default function Search() {
     useEffect(() => {
         const fetchSearchResults = async () => {
             setLoading(true);
+            setFetchError(null);
             try {
-                let url = `https://kurotv-production-9a26.up.railway.app/anime/zoro/search?page=${page}&sort=${sort}`;
-                if (query) url += `&q=${encodeURIComponent(query)}`;
+                // 🔥 DYNAMIC API GATEWAY ALIGNMENT
+                // Seamlessly routes to your local backend during development to bypass cross-origin blocks,
+                // while automatically targeting your production gateway when deployed live.
+                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+
+                const safeQuery = query ? query.trim() : '';
+
+                let url = `${apiUrl}/anime/zoro/search?page=${page}&sort=${sort}`;
+                if (safeQuery) url += `&q=${encodeURIComponent(safeQuery)}`;
                 if (genre) url += `&genres=${encodeURIComponent(genre)}`;
                 if (format) url += `&format=${encodeURIComponent(format)}`;
 
                 const res = await fetch(url);
+
+                // ✅ FIX: Detect non-200 HTTP status (e.g. 500 from backend crash or CORS pre-flight block)
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status} — check your backend logs.`);
+                }
+
                 const data = await res.json();
+
+                // ✅ FIX: Detect when the backend itself returned an error field
+                if (data.error) {
+                    console.warn("[Search] Backend error:", data.error);
+                }
 
                 if (page === 1) {
                     setResults(data.results || []);
@@ -114,6 +134,9 @@ export default function Search() {
                 setHasNextPage(data.hasNextPage);
             } catch (error) {
                 console.error("Search failed:", error);
+                // ✅ FIX: Show error message to the user so they know if it's a backend/network issue
+                setFetchError(error instanceof Error ? error.message : "Failed to connect to server. Is your backend running?");
+                if (page === 1) setResults([]);
             } finally {
                 setLoading(false);
             }
@@ -132,7 +155,6 @@ export default function Search() {
         setOpenDropdown(null);
     };
 
-    // 馃洃 UPDATED: Now redirects specifically to the /home dashboard
     const handleBack = () => {
         navigate('/home');
     };
@@ -143,7 +165,7 @@ export default function Search() {
             <div className="max-w-[1400px] mx-auto mb-10">
                 <button
                     onClick={handleBack}
-                    className="flex items-center gap-2 text-[10px] font-black tracking-widest text-gray-500 hover:text-blue-500 uppercase transition-colors mb-6"
+                    className="flex items-center gap-2 text-[10px] font-black tracking-widest text-gray-500 hover:text-blue-500 uppercase transition-colors mb-6 cursor-pointer"
                 >
                     <ArrowLeft className="w-4 h-4" /> Go Back
                 </button>
@@ -187,6 +209,15 @@ export default function Search() {
             </div>
 
             <div className="max-w-[1400px] mx-auto">
+                {fetchError && (
+                    <div className="mb-8 flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-5 py-4 text-red-400">
+                        <span className="text-lg">⚠️</span>
+                        <div>
+                            <p className="text-xs font-black uppercase tracking-widest text-red-400">Search Error</p>
+                            <p className="text-xs font-medium text-red-400/80 mt-0.5">{fetchError}</p>
+                        </div>
+                    </div>
+                )}
                 {results.length === 0 && !loading ? (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-500">
                         <Filter className="w-12 h-12 mb-4 opacity-20" />
@@ -196,7 +227,7 @@ export default function Search() {
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-y-10 gap-x-6">
                         {results.map((anime) => (
-                            <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}`)} className="group cursor-pointer relative">
+                            <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}`)} className="group cursor-pointer relative block">
                                 <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
                                     <img src={anime.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={anime.title} />
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
@@ -227,7 +258,7 @@ export default function Search() {
                     <div className="mt-16 flex justify-center">
                         <button
                             onClick={() => setPage(p => p + 1)}
-                            className="bg-[#111] hover:bg-blue-600 border border-[#222] hover:border-blue-500 text-white px-10 py-3.5 rounded-lg font-black tracking-widest uppercase text-xs transition-all shadow-xl"
+                            className="bg-[#111] hover:bg-blue-600 border border-[#222] hover:border-blue-500 text-white px-10 py-3.5 rounded-lg font-black tracking-widest uppercase text-xs transition-all shadow-xl cursor-pointer"
                         >
                             Load More Anime
                         </button>

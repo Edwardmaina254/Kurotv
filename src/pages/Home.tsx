@@ -1,5 +1,5 @@
 // src/pages/Home.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HeroBanner from '../components/HeroBanner';
 import TrendingSidebar from '../components/TrendingSidebar';
@@ -25,6 +25,7 @@ export default function Home() {
     const [loading, setLoading] = useState(true);
 
     const navigate = useNavigate();
+    const slideIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -68,16 +69,34 @@ export default function Home() {
         loadData();
     }, []);
 
+    const startSlideTimer = () => {
+        if (slideIntervalRef.current) clearInterval(slideIntervalRef.current);
+        slideIntervalRef.current = window.setInterval(() => {
+            setCurrentIndex((prev) => (prev + 1) % Math.min(trending.length, 20));
+        }, 5000);
+    };
+
     useEffect(() => {
         if (trending.length === 0 || loading) return;
-        const slideInterval = setInterval(() => { handleNext(); }, 8000);
-        return () => clearInterval(slideInterval);
+        startSlideTimer();
+        return () => { if (slideIntervalRef.current) clearInterval(slideIntervalRef.current); };
     }, [trending, loading]);
 
     const activeAnime = trending[currentIndex];
 
     const handleNext = () => {
         setCurrentIndex((prev) => (prev + 1) % Math.min(trending.length, 20));
+        startSlideTimer();
+    };
+
+    const handlePrev = () => {
+        setCurrentIndex((prev) => (prev - 1 + Math.min(trending.length, 20)) % Math.min(trending.length, 20));
+        startSlideTimer();
+    };
+
+    const handleSelectSlide = (index: number) => {
+        setCurrentIndex(index);
+        startSlideTimer();
     };
 
     const handleRemoveHistory = async (e: React.MouseEvent, anime_id: string) => {
@@ -100,7 +119,7 @@ export default function Home() {
 
     return (
         <main className="w-full flex flex-col">
-            <section className="relative w-full h-[500px]">
+            <section className="relative w-full min-h-[500px] md:h-[520px]">
                 {loading ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-[#040404] z-50">
                         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -111,12 +130,15 @@ export default function Home() {
                             anime={activeAnime}
                             currentIndex={currentIndex}
                             total={Math.min(trending.length, 20)}
+                            onNext={handleNext}
+                            onPrev={handlePrev}
+                            onSelect={handleSelectSlide}
                         />
                     )
                 )}
             </section>
 
-            <div className="flex flex-col lg:flex-row gap-8 px-12 py-10 -mt-12 relative z-40">
+            <div className="flex flex-col lg:flex-row gap-8 px-12 py-10 mt-4 relative z-40">
                 <section className="flex-1 overflow-hidden">
 
                     {history.length > 0 && (
@@ -126,13 +148,13 @@ export default function Home() {
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={() => { const el = document.getElementById('continue-scroll'); if (el) el.scrollBy({ left: -340, behavior: 'smooth' }); }}
-                                        className="w-8 h-8 rounded-full bg-[#111] border border-[#222] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200"
+                                        className="w-8 h-8 rounded-full bg-[#111] border border-[#222] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer"
                                     >
                                         <ChevronLeft className="w-4 h-4" />
                                     </button>
                                     <button
                                         onClick={() => { const el = document.getElementById('continue-scroll'); if (el) el.scrollBy({ left: 340, behavior: 'smooth' }); }}
-                                        className="w-8 h-8 rounded-full bg-[#111] border border-[#222] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200"
+                                        className="w-8 h-8 rounded-full bg-[#111] border border-[#222] hover:bg-blue-600 hover:border-blue-500 text-gray-400 hover:text-white flex items-center justify-center transition-all duration-200 cursor-pointer"
                                     >
                                         <ChevronRight className="w-4 h-4" />
                                     </button>
@@ -142,11 +164,21 @@ export default function Home() {
                             <div id="continue-scroll" className="flex gap-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                                 {history.map((item) => {
                                     const progressPercent = item.duration > 0 ? (item.progress / item.duration) * 100 : 0;
+                                    const targetUrl = `/anime/${item.anime_id}?ep=${item.episode_id}`;
+
                                     return (
-                                        <div
+                                        <a
                                             key={`history-${item.anime_id}`}
-                                            onClick={() => navigate(`/anime/${item.anime_id}?ep=${item.episode_id}`)}
-                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3"
+                                            href={targetUrl}
+                                            onClick={(e) => {
+                                                // Let the browser handle Ctrl+Click, Cmd+Click, or Middle-Click natively
+                                                if (e.ctrlKey || e.metaKey || e.button === 1) return;
+
+                                                // Intercept standard left-clicks for lightning-fast router navigation
+                                                e.preventDefault();
+                                                navigate(targetUrl);
+                                            }}
+                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3 block"
                                         >
                                             <div className="w-full aspect-video rounded-xl overflow-hidden bg-[#0a0a0a] border border-[#222] group-hover:border-blue-500/50 transition-all duration-300 shadow-lg relative">
                                                 <img
@@ -164,7 +196,7 @@ export default function Home() {
 
                                                 <button
                                                     onClick={(e) => handleRemoveHistory(e, item.anime_id)}
-                                                    className="absolute top-2 right-2 w-7 h-7 bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-600 hover:border-red-500 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 z-30 opacity-0 group-hover:opacity-100 shadow-lg"
+                                                    className="absolute top-2 right-2 w-7 h-7 bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-600 hover:border-red-500 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 z-30 opacity-0 group-hover:opacity-100 shadow-lg cursor-pointer"
                                                     title="Remove from history"
                                                 >
                                                     <X className="w-4 h-4" />
@@ -185,14 +217,15 @@ export default function Home() {
                                             <h3 className="text-sm font-bold text-gray-200 line-clamp-1 group-hover:text-blue-400 transition-colors px-1">
                                                 {item.anime_title}
                                             </h3>
-                                        </div>
+                                        </a>
                                     );
                                 })}
                             </div>
                         </div>
                     )}
 
-                    <div className="flex items-center justify-between mb-8">
+                    {/* ⚡ SPACING FIX: Bumped padding to pt-8 mt-6 to guarantee cards never peek out or overlap adjacent content */}
+                    <div className="flex items-center justify-between mb-8 pt-8 mt-6 border-t border-white/5">
                         <div className="flex items-center gap-4">
                             <h2 className="text-[22px] font-black uppercase tracking-tighter italic">Latest Updates</h2>
                             <div className="h-1 w-16 bg-blue-600 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)] mt-1" />
@@ -205,32 +238,44 @@ export default function Home() {
                                 <div key={i} className="aspect-[2/3] bg-white/5 rounded-[20px] animate-pulse" />
                             ))
                         ) : (
-                            schedule.slice(0, 20).map((anime, index) => (
-                                <div
-                                    key={`latest-${anime.id}-${index}`}
-                                    onClick={() => navigate(`/anime/${anime.id}`)}
-                                    className="group cursor-pointer"
-                                >
-                                    <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
-                                        <img
-                                            src={anime.image}
-                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                                            alt={anime.title}
-                                        />
-                                        <div className="absolute top-3 right-3 bg-blue-600 text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
-                                            EP {(anime as any).episode || "1"}
-                                        </div>
-                                        <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-[9px] font-black px-2 py-1 rounded-md uppercase border border-white/10 z-20">
-                                            {(anime as any).type || "SUB"}
-                                        </div>
-                                    </div>
+                            schedule.slice(0, 20).map((anime, index) => {
+                                const targetUrl = `/anime/${anime.id}`;
 
-                                    <h4 className="font-bold text-[14px] truncate text-gray-300 group-hover:text-blue-400 transition-all duration-300 px-1">
-                                        {anime.title}
-                                    </h4>
-                                    <p className="text-[10px] text-gray-600 font-bold mt-1 uppercase tracking-widest px-1">TV Series</p>
-                                </div>
-                            ))
+                                return (
+                                    <a
+                                        key={`latest-${anime.id}-${index}`}
+                                        href={targetUrl}
+                                        onClick={(e) => {
+                                            // Let the browser handle Ctrl+Click, Cmd+Click, or Middle-Click natively
+                                            if (e.ctrlKey || e.metaKey || e.button === 1) return;
+
+                                            // Intercept standard left-clicks for lightning-fast router navigation
+                                            e.preventDefault();
+                                            navigate(targetUrl);
+                                        }}
+                                        className="group cursor-pointer block"
+                                    >
+                                        <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
+                                            <img
+                                                src={anime.image}
+                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                                                alt={anime.title}
+                                            />
+                                            <div className="absolute top-3 right-3 bg-blue-600 text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
+                                                EP {(anime as any).episode || "1"}
+                                            </div>
+                                            <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-[9px] font-black px-2 py-1 rounded-md uppercase border border-white/10 z-20">
+                                                {anime.subOrDub || "SUB"}
+                                            </div>
+                                        </div>
+
+                                        <h4 className="font-bold text-[14px] truncate text-gray-300 group-hover:text-blue-400 transition-all duration-300 px-1">
+                                            {anime.title}
+                                        </h4>
+                                        <p className="text-[10px] text-gray-600 font-bold mt-1 uppercase tracking-widest px-1">TV Series</p>
+                                    </a>
+                                );
+                            })
                         )}
                     </div>
                 </section>
