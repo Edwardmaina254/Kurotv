@@ -36,16 +36,30 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://kurotv-production.up.railway.app',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
+];
+
 const corsOptions = {
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Blocked request from unknown origin: ${origin}`);
+    callback(new Error(`CORS policy: Origin ${origin} is not allowed.`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
+  credentials: true
 };
 app.use(cors(corsOptions));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 200, // Raised limits to ensure fluid proxy navigation
   message: "Too many requests from this IP, please try again after 15 minutes",
   standardHeaders: true,
   legacyHeaders: false,
@@ -55,44 +69,55 @@ app.use('/anime/', limiter);
 const anilist = new META.Anilist();
 const ANILIST_API = 'https://graphql.anilist.co';
 
-console.log("✅ KuroTV Backend: Bulletproof Intersection Engine Online! (Security: HIGH)");
+console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online! (Security: HIGH)");
 
 // ==========================================
-// 🛑 CACHING SYSTEMS & THE BANLIST
+// 🛑 AGGRESSIVE CACHING SYSTEMS
 // ==========================================
 const CACHE = { trending: null, recent: null, schedule: null };
 
 const NODE_CACHE = new Map();
 const MAPPING_CACHE = new Map();
 
-// ⚡ THE BANLIST: Add the AniList ID of any broken/ghost anime here to erase it from the app!
 const BANNED_ANIME_IDS = [
   '209940' // Komekami! Girls
 ];
 
 const getCache = (key) => NODE_CACHE.get(key);
-const setCache = (key, data, ttlHours = 2) => {
+const setCache = (key, data, ttlHours = 12) => { // Upgraded default retention to 12 hours for lightning speeds
   NODE_CACHE.set(key, data);
   setTimeout(() => NODE_CACHE.delete(key), ttlHours * 60 * 60 * 1000);
 };
 
 // ==========================================
-// ⚙️ THE EXPONENTIAL BACKOFF ENGINE
+// ⚙️ HYPER-CONCURRENT BACKOFF ENGINE
 // ==========================================
-const fetchWithBackoff = async (url, options, maxRetries = 3) => {
+const fetchWithBackoff = async (url, options, maxRetries = 2) => {
+  const finalOptions = { ...options };
+  finalOptions.headers = {
+    ...finalOptions.headers,
+    'User-Agent': 'KuroTV/1.0 (Performance Gateway)',
+    'Accept': 'application/json'
+  };
+
   for (let i = 0; i < maxRetries; i++) {
-    const response = await fetch(url, options);
-    if (response.status !== 429) return response;
-    const waitTime = Math.pow(2, i) * 1000;
-    console.log(`⏳ [API] 429 Rate Limit Hit. Waiting ${waitTime}ms before retry...`);
+    // Crushed abort ceiling down to 2500ms to immediately failover slow upstream proxy nodes
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(url, { ...finalOptions, signal: controller.signal });
+      clearTimeout(timeout);
+      if (response.status !== 429) return response;
+    } catch (e) {
+      clearTimeout(timeout);
+      if (i === maxRetries - 1) throw e;
+    }
+    const waitTime = Math.pow(2, i) * 350; // Massively reduced backoff latency buffer
     await new Promise(resolve => setTimeout(resolve, waitTime));
   }
   throw new Error("Max retries reached after Rate Limit.");
 };
 
-// ==========================================
-// ⏱️ THE TIMEOUT OVERRIDE ENGINE
-// ==========================================
 const timeoutPromise = (promise, ms) => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms);
@@ -109,14 +134,14 @@ const timeoutPromise = (promise, ms) => {
 };
 
 // ==========================================
-// ⚙️ SHARED SOURCE PROCESSOR
+// ⚙️ MASSIVELY PARALLEL SOURCE RACER
 // ==========================================
 async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
   const obfuscated = sources.filter(s => s.sourceUrl && s.sourceUrl.startsWith('--'));
   const sorted = [
     ...obfuscated.filter(s => s.type === 'player'),
     ...obfuscated.filter(s => s.type !== 'player')
-  ].slice(0, 5);
+  ].slice(0, 4);
 
   if (sorted.length === 0) return null;
 
@@ -132,10 +157,10 @@ async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
 
     if (providerUrl.includes('clock.json') || providerUrl.endsWith('.json')) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1000);
+      const timeout = setTimeout(() => controller.abort(), 800); // 800ms hyper-execution limit
 
       const clockRes = await fetch(providerUrl, {
-        headers: { Referer: ALLANIME_REFERER, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36" },
+        headers: { Referer: ALLANIME_REFERER, "User-Agent": "Mozilla/5.0" },
         signal: controller.signal
       });
       clearTimeout(timeout);
@@ -157,10 +182,10 @@ async function processAllanImeSources(sources, baseUrl, cacheKey = null) {
   });
 
   try {
+    // Race all incoming un-obfuscation promises to hand the absolute fastest link back to the browser instantly
     const fastestResponse = await Promise.any(sourcePromises);
     return fastestResponse;
   } catch (aggregateError) {
-    console.warn(`[SOURCE RACE] All sources timed out or failed.`);
     return null;
   }
 }
@@ -243,7 +268,7 @@ function normalizeTobeparsed(value) {
 
 async function allAnimeGql(variables, query) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  const timeoutId = setTimeout(() => controller.abort(), 2500); // Massive timeout cut for swift upstream queries
 
   try {
     const res = await fetch(`${ALLANIME_API}/api`, {
@@ -251,7 +276,7 @@ async function allAnimeGql(variables, query) {
       headers: {
         "Content-Type": "application/json",
         "Referer": ALLANIME_REFERER,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0"
       },
       body: JSON.stringify({ variables, query }),
       signal: controller.signal
@@ -268,9 +293,9 @@ async function allAnimeGql(variables, query) {
 async function checkIsM3U8(url) {
   if (url.includes('.m3u8')) return true;
   try {
-    const headers = { "Referer": ALLANIME_REFERER, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36" };
+    const headers = { "Referer": ALLANIME_REFERER, "User-Agent": "Mozilla/5.0" };
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 400);
+    const timeout = setTimeout(() => controller.abort(), 300);
     let res = await fetch(url, { method: 'HEAD', headers, signal: controller.signal });
     clearTimeout(timeout);
 
@@ -279,7 +304,7 @@ async function checkIsM3U8(url) {
     if (contentType.includes('mp4') || contentType.includes('video/mp4')) return false;
 
     const sniffController = new AbortController();
-    const sniffTimeout = setTimeout(() => sniffController.abort(), 400);
+    const sniffTimeout = setTimeout(() => sniffController.abort(), 300);
     res = await fetch(url, { headers: { ...headers, Range: 'bytes=0-150' }, signal: sniffController.signal });
     const arrayBuffer = await res.arrayBuffer();
     clearTimeout(sniffTimeout);
@@ -315,9 +340,10 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ==========================================
-// 🏠 HOMEPAGE ROUTES
+// 🏠 HOMEPAGE ROUTES (OPTIMIZED RAM RETENTION)
 // ==========================================
 app.get('/anime/zoro/top-airing', async (req, res) => {
+  if (CACHE.trending) return res.json({ results: CACHE.trending });
   try {
     const query = `query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
@@ -326,7 +352,7 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
       .map(anime => ({
         id: anime?.id?.toString() || '', title: anime?.title?.english || anime?.title?.romaji || 'Unknown', image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '', rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
       }))
-      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
 
     CACHE.trending = formatted;
     return res.json({ results: formatted });
@@ -334,6 +360,7 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
 });
 
 app.get('/anime/zoro/recent-episodes', async (req, res) => {
+  if (CACHE.recent) return res.json({ results: CACHE.recent });
   try {
     const query = `query { Page(page: 1, perPage: 30) { airingSchedules(notYetAired: false, sort: TIME_DESC) { episode media { id title { english romaji } coverImage { extraLarge } type } } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
@@ -342,7 +369,7 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
       .map(item => ({
         id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
       }))
-      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
 
     const unique = []; const seen = new Set();
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
@@ -351,10 +378,8 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
   } catch (error) { return res.json({ results: CACHE.recent || [] }); }
 });
 
-// ==========================================
-// 📅 WEEKLY SCHEDULE ROUTE
-// ==========================================
 app.get('/anime/zoro/schedule', async (req, res) => {
+  if (CACHE.schedule) return res.json({ results: CACHE.schedule });
   try {
     const now = new Date();
     const startOfWeek = new Date(now);
@@ -391,7 +416,7 @@ app.get('/anime/zoro/schedule', async (req, res) => {
         type: item?.media?.type || "TV",
         airingAt: item?.airingAt || 0
       }))
-      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
 
     const unique = []; const seen = new Set();
     for (const anime of formatted) {
@@ -409,13 +434,13 @@ app.get('/anime/zoro/schedule', async (req, res) => {
 });
 
 // ==========================================
-// 🔍 GOD-MODE SEARCH ROUTE
+// 🔍 GOD-MODE SEARCH ROUTE (CALIBRATED & STRICTLY LOCKED)
 // ==========================================
 app.get('/anime/zoro/search', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const perPage = 24;
-    const search = req.query.q || undefined;
+    const perPage = 40;
+    const search = req.query.q ? req.query.q.trim() : undefined;
     const format = req.query.format || undefined;
     const status = req.query.status || undefined;
     const genres = req.query.genres ? req.query.genres.split(',') : undefined;
@@ -428,7 +453,6 @@ app.get('/anime/zoro/search', async (req, res) => {
     };
 
     let sortQuery = [];
-
     if (search) {
       sortQuery = ['SEARCH_MATCH'];
     } else if (req.query.sort && sortMap[req.query.sort]) {
@@ -441,10 +465,26 @@ app.get('/anime/zoro/search', async (req, res) => {
     let mediaArgs = `type: ANIME, sort: $sort`;
     const variables = { page, perPage, sort: sortQuery };
 
-    if (search) { queryArgs += `, $search: String`; mediaArgs += `, search: $search`; variables.search = search; }
-    if (format) { queryArgs += `, $format: MediaFormat`; mediaArgs += `, format: $format`; variables.format = format; }
-    if (status) { queryArgs += `, $status: MediaStatus`; mediaArgs += `, status: $status`; variables.status = status; }
-    if (genres) { queryArgs += `, $genre_in: [String]`; mediaArgs += `, genre_in: $genre_in`; variables.genre_in = genres; }
+    if (search) {
+      queryArgs += `, $search: String`;
+      mediaArgs += `, search: $search`;
+      variables.search = search;
+    }
+    if (format) {
+      queryArgs += `, $format: MediaFormat`;
+      mediaArgs += `, format: $format`;
+      variables.format = format;
+    }
+    if (status) {
+      queryArgs += `, $status: MediaStatus`;
+      mediaArgs += `, status: $status`;
+      variables.status = status;
+    }
+    if (genres) {
+      queryArgs += `, $genre_in: [String]`;
+      mediaArgs += `, genre_in: $genre_in`;
+      variables.genre_in = genres;
+    }
 
     const query = `
       query (${queryArgs}) { 
@@ -457,7 +497,12 @@ app.get('/anime/zoro/search', async (req, res) => {
       }
     `;
 
-    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
+    const response = await fetchWithBackoff(ANILIST_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables })
+    });
+
     const json = await response.json();
 
     if (json.errors) {
@@ -465,7 +510,22 @@ app.get('/anime/zoro/search', async (req, res) => {
       throw new Error("GraphQL Error");
     }
 
-    const formatted = (json?.data?.Page?.media || [])
+    let rawResults = json?.data?.Page?.media || [];
+
+    if (search) {
+      const queryWords = search.toLowerCase().trim().split(/\s+/);
+      rawResults = rawResults.filter(anime => {
+        const engTitle = (anime.title?.english || '').toLowerCase();
+        const romTitle = (anime.title?.romaji || '').toLowerCase();
+
+        const matchesEng = queryWords.every(w => engTitle.includes(w));
+        const matchesRom = queryWords.every(w => romTitle.includes(w));
+
+        return matchesEng || matchesRom;
+      });
+    }
+
+    const formatted = rawResults
       .map(anime => ({
         id: anime?.id?.toString() || '',
         title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
@@ -475,7 +535,7 @@ app.get('/anime/zoro/search', async (req, res) => {
         rating: anime?.averageScore || 0,
         totalEpisodes: anime?.episodes || 0
       }))
-      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id)); // ⚡ BANLIST FILTER
+      .filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
 
     return res.json({
       results: formatted,
@@ -488,30 +548,18 @@ app.get('/anime/zoro/search', async (req, res) => {
 });
 
 // ==========================================
-// ℹ️ INFO ROUTE WITH RELATIONS UPGRADE
+// ℹ️ INFO ROUTE (LIGHTNING SPEED METADATA AGGREGATOR)
 // ==========================================
 app.get('/anime/zoro/info/:id', async (req, res) => {
   const id = req.params.id;
+  const cacheKey = `info-${id}`;
+  if (getCache(cacheKey)) return res.json(getCache(cacheKey));
+
   try {
     const query = `query ($id: Int) { 
       Media (id: $id, type: ANIME) { 
-        id 
-        title { english romaji } 
-        coverImage { extraLarge } 
-        bannerImage 
-        description 
-        genres 
-        averageScore 
-        status 
-        episodes 
-        type 
-        startDate { year month day } 
-        relations { 
-          edges { 
-            relationType 
-            node { id title { english romaji } coverImage { extraLarge } format } 
-          } 
-        } 
+        id title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
+        relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
       } 
     }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(id) } }) });
@@ -527,19 +575,81 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
     if (anime.relations && anime.relations.edges) {
       relations = anime.relations.edges
         .filter(edge => ['PREQUEL', 'SEQUEL', 'ALTERNATIVE', 'SPIN_OFF', 'SIDE_STORY'].includes(edge.relationType))
-        .map(edge => ({
-          id: edge.node.id,
-          title: edge.node.title?.english || edge.node.title?.romaji || 'Unknown Title',
-          image: edge.node.coverImage?.extraLarge || '',
-          type: edge.node.format || 'TV',
-          relationType: edge.relationType
-        }))
-        .filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString())); // ⚡ BANLIST FILTER FOR RELATIONS
+        .map(edge => {
+          let titleStr = edge.node.title?.english || edge.node.title?.romaji || '';
+          if (!titleStr || titleStr.toLowerCase().includes('unknown')) {
+            titleStr = `${edge.node.format || 'TV'} ${edge.relationType.replace('_', ' ')}`;
+          }
+          return {
+            id: edge.node.id,
+            title: titleStr,
+            image: edge.node.coverImage?.extraLarge || '',
+            type: edge.node.format || 'TV',
+            relationType: edge.relationType
+          };
+        })
+        .filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()));
     }
 
-    return res.json({
+    const baseFranchiseTitleStr = anime.title?.english || anime.title?.romaji || '';
+    let cleanSearchTerm = baseFranchiseTitleStr.replace(/\s*(Season|Part|Cour|Chapter)\s*\d+.*/i, '').trim();
+    if (cleanSearchTerm.includes(':')) {
+      cleanSearchTerm = cleanSearchTerm.split(':')[0].trim();
+    }
+
+    const termLower = cleanSearchTerm.toLowerCase();
+
+    // Pulled parallel fuzzy queries into massive single-call arrays to defeat downstream delay
+    if (termLower && termLower.length > 3 && relations.length < 5) {
+      try {
+        const generalizedQuery = `
+          query($search: String) {
+            Page(page: 1, perPage: 15) {
+              media(search: $search, type: ANIME, sort: START_DATE) {
+                id title { english romaji } coverImage { extraLarge } format
+              }
+            }
+          }
+        `;
+        const generalizedRes = await fetch(ANILIST_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: generalizedQuery, variables: { search: cleanSearchTerm } })
+        });
+        const generalizedData = await generalizedRes.json();
+        if (generalizedData?.data?.Page?.media) {
+          const existingIds = new Set(relations.map(r => r.id.toString()));
+          existingIds.add(anime.id.toString());
+
+          generalizedData.data.Page.media.forEach(gm => {
+            const gmTitle = (gm.title?.english || gm.title?.romaji || '').toLowerCase();
+            if (gmTitle.includes(termLower) && !existingIds.has(gm.id.toString())) {
+              existingIds.add(gm.id.toString());
+              let dispTitle = gm.title?.english || gm.title?.romaji || '';
+              if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
+                dispTitle = `${gm.format || 'TV'} Season`;
+              }
+              relations.push({
+                id: gm.id,
+                title: dispTitle,
+                image: gm.coverImage?.extraLarge || '',
+                type: gm.format || 'TV',
+                relationType: 'SEQUEL'
+              });
+            }
+          });
+        }
+      } catch (err) { }
+    }
+
+    let primaryTitle = anime.title?.english || anime.title?.romaji || '';
+    if (!primaryTitle || primaryTitle.toLowerCase().includes('unknown')) {
+      primaryTitle = `${anime.type || 'TV'} Series`;
+    }
+
+    const payloadObj = {
       id: anime.id?.toString() || id,
-      title: anime.title?.english || anime.title?.romaji || 'Unknown Title',
+      title: primaryTitle,
       image: anime.coverImage?.extraLarge || '',
       bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
       description: anime.description || 'No synopsis available.',
@@ -550,15 +660,17 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
       type: anime.type || 'TV',
       releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown',
       relations: relations
-    });
+    };
+
+    setCache(cacheKey, payloadObj);
+    return res.json(payloadObj);
   } catch (error) {
-    console.error(`[INFO ERROR] ID ${id}:`, error.message);
     res.status(404).json({ error: "Anime not found or unreleased" });
   }
 });
 
 // ==========================================
-// 🛑 EPISODES LIST WITH "PHANTOM PADDING" FIX
+// 🛑 EPISODES LIST WITH "EXACT SEQUENCE INTERCEPTOR"
 // ==========================================
 app.get('/anime/zoro/episodes/:id', async (req, res) => {
   const id = req.params.id;
@@ -572,7 +684,6 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   let finalEpisodes = [];
   let targetEpisodes = 0;
 
-  // 1. Get Official Data
   try {
     const q = `query($id:Int){Media(id:$id){title{english romaji} status format episodes nextAiringEpisode{episode}}}`;
     const r = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, variables: { id: parseInt(id) } }) });
@@ -591,11 +702,44 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     }
   } catch (e) { }
 
-  // 2. Native Mapper
+  const interceptAndSanitizeEps = (rawArray, limitCeiling) => {
+    if (!rawArray || rawArray.length === 0) return [];
+
+    const sorted = [...rawArray].sort((a, b) => {
+      const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number) || 0;
+      const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number) || 0;
+      return numA - numB;
+    });
+
+    const sanitized = [];
+    const seenNums = new Set();
+
+    for (const ep of sorted) {
+      const num = typeof ep.number === 'number' ? ep.number : parseFloat(ep.number);
+      if (isNaN(num)) continue;
+
+      const expectedNext = sanitized.length + 1;
+      if (num > expectedNext + 2 && limitCeiling > 0 && num > limitCeiling) {
+        continue;
+      }
+
+      if (!seenNums.has(num)) {
+        seenNums.add(num);
+        sanitized.push(ep);
+      }
+    }
+
+    if (limitCeiling > 0 && sanitized.length > limitCeiling) {
+      return sanitized.slice(0, limitCeiling);
+    }
+
+    return sanitized;
+  };
+
   try {
-    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 800);
+    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 600); // Shaved timeout for lightning response
     if (consumetInfo && consumetInfo.episodes && consumetInfo.episodes.length > 0) {
-      let finalEps = consumetInfo.episodes;
+      let finalEps = interceptAndSanitizeEps(consumetInfo.episodes, targetEpisodes);
 
       const maxFoundEp = Math.max(...finalEps.map(ep => typeof ep.number === 'number' ? ep.number : parseInt(ep.number) || 0), 0);
       if (targetEpisodes > maxFoundEp) {
@@ -607,17 +751,14 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
       setCache(cacheKey, { episodes: finalEps });
       return res.json({ episodes: finalEps });
     }
-  } catch (e) {
-    console.warn(`[EPISODE SYNC] Native mapper failed for ${id}. Engaging Fallback Engine...`);
-  }
+  } catch (e) { }
 
-  // 3. Fallback Mapper
   if (animeTitles.length > 0) {
     try {
       let allAnimeId = MAPPING_CACHE.get(`allanime-id-${id}`);
 
       if (!allAnimeId) {
-        const SEARCH_GQL = `query($search: SearchInput) { shows(search: $search, limit: 40) { edges { _id name englishName availableEpisodesDetail } } }`;
+        const SEARCH_GQL = `query($search: SearchInput) { shows(search: $search, limit: 30) { edges { _id name englishName availableEpisodesDetail } } }`;
         const getWords = (str) => {
           if (!str) return [];
           return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length > 0 && !['sub', 'dub', 'tv', 'movie', 'ova', 'special', 'ona', 'part', 'season', 'the', 'and', 'of', 'nd', 'rd', 'th'].includes(w));
@@ -697,7 +838,7 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
         const combinedEps = Array.from(new Set([...subEps, ...dubEps, ...rawEps]));
 
         if (combinedEps.length > 0) {
-          finalEpisodes = combinedEps.map(epNumString => {
+          const mappedArray = combinedEps.map(epNumString => {
             const num = parseFloat(epNumString);
             const combinedId = `allanime-${id}-vid-${allAnimeId}-ep-${epNumString}`;
             return {
@@ -705,7 +846,9 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
               number: (format === 'MOVIE' && combinedEps.length === 1) ? "Full Movie" : num,
               url: combinedId
             };
-          }).sort((a, b) => (typeof a.number === 'number' && typeof b.number === 'number') ? a.number - b.number : 0);
+          });
+
+          finalEpisodes = interceptAndSanitizeEps(mappedArray, targetEpisodes);
 
           const maxFoundEp = Math.max(...finalEpisodes.map(ep => typeof ep.number === 'number' ? ep.number : parseInt(ep.number) || 0), 0);
           if (targetEpisodes > maxFoundEp) {
@@ -721,7 +864,6 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     } catch (e) { }
   }
 
-  // 4. Absolute Fallback
   if (format === 'MOVIE') {
     finalEpisodes.push({ id: `auto-${id}-1`, number: "Full Movie", url: `auto-${id}-1` });
     setCache(cacheKey, { episodes: finalEpisodes });
@@ -753,7 +895,7 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
   const baseUrl = `${protocol}://${req.get('host')}`;
 
   try {
-    const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36", "Accept": "*/*" };
+    const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0", "Accept": "*/*" };
     const fetchRes = await fetch(targetUrl, { headers });
     const contentType = (fetchRes.headers.get('content-type') || '').toLowerCase();
 
@@ -787,7 +929,7 @@ app.get('/proxy/stream', async (req, res) => {
   const baseUrl = `${protocol}://${req.get('host')}`;
 
   try {
-    const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36", "Accept": "*/*" };
+    const headers = { "Referer": referer, "User-Agent": "Mozilla/5.0", "Accept": "*/*" };
     if (req.headers.range) headers.Range = req.headers.range;
 
     let fetchRes;
@@ -823,7 +965,7 @@ app.get('/proxy/stream', async (req, res) => {
 });
 
 // ==========================================
-// 🛑 WATCH ROUTE (DYNAMIC BASE URL UPGRADE)
+// 🛑 WATCH ROUTE (HYBRID OPTION A + DB FALLBACK)
 // ==========================================
 app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const episodeId = req.params.episodeId;
@@ -831,16 +973,49 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   const cacheKey = `watch-${episodeId}-${lang}`;
   if (getCache(cacheKey)) {
-    console.log(`⚡ Serving Stream from RAM Cache: ${episodeId}`);
     return res.json(getCache(cacheKey));
   }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
   const baseUrl = `${protocol}://${req.get('host')}`;
 
-  if (episodeId.startsWith('auto-') || episodeId.startsWith('allanime-')) {
-    console.log(`🎬 Intercepted Virtual ID: ${episodeId} (Mode: ${lang})`);
+  const enrichWithSkipTimes = async (responseData, resolvedAnimeId, resolvedEpNum) => {
+    if (!responseData) return responseData;
 
+    let intro = responseData.intro || null;
+    let outro = responseData.outro || null;
+
+    if ((!intro || !outro) && resolvedAnimeId && resolvedEpNum) {
+      try {
+        const parsedEp = parseInt(resolvedEpNum);
+        if (!isNaN(parsedEp)) {
+          const { data: customSkip } = await supabase
+            .from('custom_skip_times')
+            .select('*')
+            .eq('episode_number', parsedEp)
+            .or(`anime_id.eq.${resolvedAnimeId},mal_id.eq.${resolvedAnimeId}`)
+            .maybeSingle();
+
+          if (customSkip) {
+            if (!intro && customSkip.op_start !== null && customSkip.op_end !== null) {
+              intro = { start: customSkip.op_start, end: customSkip.op_end };
+            }
+            if (!outro && customSkip.ed_start !== null && customSkip.ed_end !== null) {
+              outro = { start: customSkip.ed_start, end: customSkip.ed_end };
+            }
+          }
+        }
+      } catch (err) { }
+    }
+
+    return {
+      ...responseData,
+      intro,
+      outro
+    };
+  };
+
+  if (episodeId.startsWith('auto-') || episodeId.startsWith('allanime-')) {
     let animeId = ""; let epNum = ""; let allAnimeId = null;
 
     if (episodeId.startsWith('allanime-')) {
@@ -859,13 +1034,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
           if (sources.length === 0) {
             const paddedEp = String(epNum).padStart(2, '0');
-            console.log(`[BACKEND] Sources empty. Trying padded episode: ${paddedEp}`);
             epJson = await allAnimeGql({ showId: allAnimeId, translationType: lang, episodeString: paddedEp }, EPISODE_EMBED_GQL);
             sources = epJson?.data?.episode?.sourceUrls || [];
           }
 
           if (sources.length === 0 && lang === 'dub') {
-            console.log(`[BACKEND] Dub not found for ${allAnimeId}. Falling back to Sub...`);
             epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'sub', episodeString: epNum }, EPISODE_EMBED_GQL);
             sources = epJson?.data?.episode?.sourceUrls || [];
 
@@ -876,7 +1049,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             }
           }
 
-          // RAW FALLBACK
           if (sources.length === 0) {
             epJson = await allAnimeGql({ showId: allAnimeId, translationType: 'raw', episodeString: epNum }, EPISODE_EMBED_GQL);
             sources = epJson?.data?.episode?.sourceUrls || [];
@@ -887,13 +1059,14 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             }
           }
 
-          const bestResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
-          if (bestResponse) {
-            setCache(cacheKey, bestResponse);
-            return res.json(bestResponse);
+          const rawResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
+          if (rawResponse) {
+            const enrichedResponse = await enrichWithSkipTimes(rawResponse, animeId, epNum);
+            setCache(cacheKey, enrichedResponse);
+            return res.json(enrichedResponse);
           }
           throw new Error("All sources failed after processing.");
-        } catch (e) { console.warn(`⚠️ Native AllAnime Extraction Failed: ${e.message}`); }
+        } catch (e) { }
       }
     } else {
       const parts = episodeId.split('-');
@@ -905,8 +1078,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
     try {
       if (!allAnimeId) {
-        console.log(`[FALLBACK ENGINE] Native AllAnime ID missing. Searching AllAnime by title for AniList ID: ${animeId}`);
-
         const titleQuery = `query($id:Int){Media(id:$id){title{romaji english} episodes nextAiringEpisode{episode}}}`;
         const titleRes = await fetchWithBackoff(ANILIST_API, {
           method: 'POST',
@@ -970,7 +1141,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         }
 
         if (!allAnimeId) throw new Error("AllAnime title search returned no matches");
-        console.log(`[FALLBACK ENGINE] ✅ Matched AllAnime ID: ${allAnimeId} (score: ${bestScore}) for episode ${epNum}`);
         MAPPING_CACHE.set(`allanime-id-${animeId}`, allAnimeId);
       }
 
@@ -1005,15 +1175,15 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         }
       }
 
-      const bestResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
-      if (bestResponse) {
-        setCache(cacheKey, bestResponse);
-        return res.json(bestResponse);
+      const rawResponse = await processAllanImeSources(sources, baseUrl, cacheKey);
+      if (rawResponse) {
+        const enrichedResponse = await enrichWithSkipTimes(rawResponse, animeId, epNum);
+        setCache(cacheKey, enrichedResponse);
+        return res.json(enrichedResponse);
       }
       throw new Error("All AllAnime fallback sources failed");
 
     } catch (err) {
-      console.log(`[FALLBACK ENGINE] ❌ Stream completely unavailable for ID ${animeId} - ${err.message}`);
       return res.json({ error: "Unreleased or No Sources", sources: [] });
     }
   }
@@ -1021,10 +1191,18 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   if (episodeId.startsWith('http')) return res.json({ sources: [{ url: episodeId, isM3U8: episodeId.includes('.m3u8'), quality: 'default' }] });
 
   try {
-    const data = await timeoutPromise(anilist.fetchEpisodeSources(episodeId), 4500);
-    setCache(cacheKey, data);
-    res.json(data);
-  } catch (error) { res.status(500).json({ error: "Stream Failed" }); }
+    const rawData = await timeoutPromise(anilist.fetchEpisodeSources(episodeId), 4500);
+
+    const fallbackAnimeId = req.query.animeId || null;
+    const fallbackEpNum = req.query.epNum || null;
+
+    const enrichedData = await enrichWithSkipTimes(rawData, fallbackAnimeId, fallbackEpNum);
+
+    setCache(cacheKey, enrichedData);
+    res.json(enrichedData);
+  } catch (error) {
+    res.status(500).json({ error: "Stream Failed" });
+  }
 });
 
 app.listen(preferredPort, host, () => {
