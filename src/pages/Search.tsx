@@ -98,105 +98,36 @@ export default function Search() {
         const fetchSearchResults = async () => {
             setLoading(true);
             try {
-                // 🔥 UNIVERSAL INPUT PROPAGATOR
-                // Normalizes parameters robustly to guarantee absolute alignment between instant dropdown preview arrays
-                // and your main discovery grid, completely eliminating unmapped result text drops.
-                const searchStr = query ? query.trim() : '';
+                // 🔥 DYNAMIC API GATEWAY ALIGNMENT
+                // Seamlessly routes to your local backend during development to bypass cross-origin blocks,
+                // while automatically targeting your production gateway when deployed live.
+                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
 
-                const sortMap: Record<string, string> = {
-                    'trending': 'TRENDING_DESC',
-                    'popular': 'POPULARITY_DESC',
-                    'newest': 'START_DATE_DESC',
-                    'score': 'SCORE_DESC'
-                };
+                const safeQuery = query ? query.trim() : '';
 
-                let queryArgs = `$page: Int, $perPage: Int, $sort: [MediaSort]`;
-                let mediaArgs = `type: ANIME, sort: $sort`;
-                const variables: any = {
-                    page,
-                    perPage: 40,
-                    sort: searchStr ? ['SEARCH_MATCH'] : [sortMap[sort] || 'TRENDING_DESC']
-                };
+                let url = `${apiUrl}/anime/zoro/search?page=${page}&sort=${sort}`;
+                if (safeQuery) url += `&q=${encodeURIComponent(safeQuery)}`;
+                if (genre) url += `&genres=${encodeURIComponent(genre)}`;
+                if (format) url += `&format=${encodeURIComponent(format)}`;
 
-                if (searchStr) {
-                    queryArgs += `, $search: String`;
-                    mediaArgs += `, search: $search`;
-                    variables.search = searchStr;
-                }
-                if (genre) {
-                    queryArgs += `, $genre_in: [String]`;
-                    mediaArgs += `, genre_in: $genre_in`;
-                    variables.genre_in = [genre];
-                }
-                if (format) {
-                    queryArgs += `, $format: MediaFormat`;
-                    mediaArgs += `, format: $format`;
-                    variables.format = format;
+                const res = await fetch(url);
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status} — check your backend logs.`);
                 }
 
-                const gqlQuery = `
-                query (${queryArgs}) {
-                    Page(page: $page, perPage: $perPage) {
-                        pageInfo { hasNextPage currentPage }
-                        media(${mediaArgs}) {
-                            id
-                            title { english romaji }
-                            coverImage { extraLarge }
-                            format
-                            status
-                            averageScore
-                            episodes
-                        }
-                    }
-                }`;
+                const data = await res.json();
 
-                const response = await fetch('https://graphql.anilist.co', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                    },
-                    body: JSON.stringify({ query: gqlQuery, variables })
-                });
-
-                const data = await response.json();
-
-                let rawResults = data?.data?.Page?.media || [];
-
-                // 🛑 ELITE KEYWORD OVERLAP POST-FILTER
-                if (searchStr) {
-                    const queryWords = searchStr.toLowerCase().trim().split(/\s+/);
-                    rawResults = rawResults.filter((anime: any) => {
-                        const engTitle = (anime.title?.english || '').toLowerCase();
-                        const romTitle = (anime.title?.romaji || '').toLowerCase();
-
-                        const matchesEng = queryWords.every(w => engTitle.includes(w));
-                        const matchesRom = queryWords.every(w => romTitle.includes(w));
-
-                        return matchesEng || matchesRom;
-                    });
+                if (data.error) {
+                    console.warn("[Search] Backend error:", data.error);
                 }
-
-                const BANNED_IDS = new Set(['209940']);
-
-                const formatted: SearchResult[] = rawResults
-                    .map((anime: any) => ({
-                        id: anime.id?.toString() || '',
-                        title: anime.title?.english || anime.title?.romaji || 'Unknown',
-                        image: anime.coverImage?.extraLarge || '',
-                        type: anime.format || "TV",
-                        status: anime.status || "UNKNOWN",
-                        rating: anime.averageScore || 0,
-                        totalEpisodes: anime.episodes || 0
-                    }))
-                    .filter((anime: SearchResult) => !BANNED_IDS.has(anime.id));
 
                 if (page === 1) {
-                    setResults(formatted);
+                    setResults(data.results || []);
                 } else {
-                    setResults(prev => [...prev, ...formatted]);
+                    setResults(prev => [...prev, ...(data.results || [])]);
                 }
-                setHasNextPage(data?.data?.Page?.pageInfo?.hasNextPage || false);
+                setHasNextPage(data.hasNextPage);
             } catch (error) {
                 console.error("Search failed:", error);
                 if (page === 1) setResults([]);
