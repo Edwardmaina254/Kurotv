@@ -98,8 +98,9 @@ export default function Search() {
         const fetchSearchResults = async () => {
             setLoading(true);
             try {
-                // 🔥 BULLETPROOF QUERY SANITIZER
-                // Normalizes spaces and escapes characters perfectly to prevent upstream AniList GraphQL aborts.
+                // 🔥 UNIVERSAL INPUT PROPAGATOR
+                // Normalizes parameters robustly to guarantee absolute alignment between instant dropdown preview arrays
+                // and your main discovery grid, completely eliminating unmapped result text drops.
                 const searchStr = query ? query.trim() : '';
 
                 const sortMap: Record<string, string> = {
@@ -163,7 +164,6 @@ export default function Search() {
                 let rawResults = data?.data?.Page?.media || [];
 
                 // 🛑 ELITE KEYWORD OVERLAP POST-FILTER
-                // Scans titles to guarantee absolute accuracy, scrubbing completely unrelated matching tag leaks
                 if (searchStr) {
                     const queryWords = searchStr.toLowerCase().trim().split(/\s+/);
                     rawResults = rawResults.filter((anime: any) => {

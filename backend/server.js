@@ -101,7 +101,6 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
   };
 
   for (let i = 0; i < maxRetries; i++) {
-    // Aggressive 1500ms connection abort ceiling to completely prevent thread locking
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1500);
     try {
@@ -112,7 +111,6 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
       clearTimeout(timeout);
       if (i === maxRetries - 1) throw e;
     }
-    // Massively reduced sleep buffer: wait only 200ms instead of freezing the server for 4000ms
     const waitTime = Math.pow(2, i) * 200;
     await new Promise(resolve => setTimeout(resolve, waitTime));
   }
@@ -268,7 +266,7 @@ function normalizeTobeparsed(value) {
 
 async function allAnimeGql(variables, query) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000); // Strict timeout cut for swift upstream queries
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
 
   try {
     const res = await fetch(`${ALLANIME_API}/api`, {
@@ -434,7 +432,7 @@ app.get('/anime/zoro/schedule', async (req, res) => {
 });
 
 // ==========================================
-// 🔍 GOD-MODE SEARCH ROUTE (CALIBRATED & STRICTLY LOCKED)
+// 🔍 GOD-MODE SEARCH ROUTE (UNIFIED PROXIMITY ENGINE)
 // ==========================================
 app.get('/anime/zoro/search', async (req, res) => {
   try {
@@ -454,7 +452,7 @@ app.get('/anime/zoro/search', async (req, res) => {
 
     let sortQuery = [];
     if (search) {
-      sortQuery = ['SEARCH_MATCH'];
+      sortQuery = ['SEARCH_MATCH', 'POPULARITY_DESC'];
     } else if (req.query.sort && sortMap[req.query.sort]) {
       sortQuery = [sortMap[req.query.sort]];
     } else {
@@ -463,13 +461,26 @@ app.get('/anime/zoro/search', async (req, res) => {
 
     let queryArgs = `$page: Int, $perPage: Int, $sort: [MediaSort]`;
     let mediaArgs = `type: ANIME, sort: $sort`;
-    const variables = { page, perPage, sort: sortQuery };
+    const fetchLimit = search ? 50 : perPage;
+    const variables = { page, perPage: fetchLimit, sort: sortQuery };
 
+    // 🔥 PRECISE ALGORITHMIC BROADCASTING
+    // Ensures your live server extracts absolute keyword nodes, bypassing empty array query leaks
+    // while feeding instant data back to your global preview dropdowns.
     if (search) {
+      let graphqlSearchString = search;
+      const words = search.split(/\s+/).filter(w => w.length > 2);
+      if (words.length > 0) {
+        graphqlSearchString = words.reduce((a, b) => a.length > b.length ? a : b);
+      } else {
+        graphqlSearchString = search.split(/\s+/)[0];
+      }
+
       queryArgs += `, $search: String`;
       mediaArgs += `, search: $search`;
-      variables.search = search;
+      variables.search = graphqlSearchString;
     }
+
     if (format) {
       queryArgs += `, $format: MediaFormat`;
       mediaArgs += `, format: $format`;
@@ -512,20 +523,40 @@ app.get('/anime/zoro/search', async (req, res) => {
 
     let rawResults = json?.data?.Page?.media || [];
 
+    // 🔥 UNIFIED PROXIMITY POST-FILTER
+    // Slightly relaxes matching thresholds specifically for instant auto-complete preview strings
+    // to guarantee immediate dropdown population while maintaining pristine mainline discovery indexing.
     if (search) {
-      const queryWords = search.toLowerCase().trim().split(/\s+/);
+      const norm = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const queryNorm = norm(search);
+      const queryWords = queryNorm.split(' ').filter(w => w.length > 1);
+
       rawResults = rawResults.filter(anime => {
-        const engTitle = (anime.title?.english || '').toLowerCase();
-        const romTitle = (anime.title?.romaji || '').toLowerCase();
+        const tEng = norm(anime?.title?.english);
+        const tRom = norm(anime?.title?.romaji);
+        const fullT = `${tEng} ${tRom}`;
 
-        const matchesEng = queryWords.every(w => engTitle.includes(w));
-        const matchesRom = queryWords.every(w => romTitle.includes(w));
+        // Absolute direct match
+        if (tEng.includes(queryNorm) || tRom.includes(queryNorm)) {
+          return true;
+        }
 
-        return matchesEng || matchesRom;
+        // Distinct keyword proximity checks
+        if (queryWords.length > 0) {
+          if (queryWords.length <= 2) {
+            return queryWords.every(w => fullT.includes(w));
+          } else {
+            let matchCount = 0;
+            queryWords.forEach(w => { if (fullT.includes(w)) matchCount++; });
+            return (matchCount / queryWords.length) >= 0.4; // Softened threshold to reliably render previews
+          }
+        }
+        return false;
       });
     }
 
     const formatted = rawResults
+      .slice(0, perPage)
       .map(anime => ({
         id: anime?.id?.toString() || '',
         title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
@@ -542,8 +573,8 @@ app.get('/anime/zoro/search', async (req, res) => {
       hasNextPage: json?.data?.Page?.pageInfo?.hasNextPage || false
     });
   } catch (error) {
-    console.error("[SEARCH ERROR]", error.message);
-    return res.status(500).json({ results: [], hasNextPage: false, error: "Search Failed" });
+    console.error("[SEARCH ERROR]", error.message, "\n", error.stack);
+    return res.status(500).json({ results: [], hasNextPage: false, error: error.message || "Search Failed" });
   }
 });
 
@@ -978,7 +1009,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
   const baseUrl = `${protocol}://${req.get('host')}`;
 
-  // 🛡️ UNIVERSAL SKIP ENRICHMENT LAYER
   const enrichWithSkipTimes = async (responseData, resolvedAnimeId, resolvedEpNum) => {
     if (!responseData) return responseData;
 
