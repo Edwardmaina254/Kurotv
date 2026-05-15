@@ -59,6 +59,8 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
+app.set('trust proxy', 1); // 🔥 Tells Express it is safely behind Railway's cloud proxy
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 250,
