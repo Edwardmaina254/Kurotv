@@ -5,16 +5,15 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createRequire } from 'module';
 import { createClient } from '@supabase/supabase-js';
-import { createDecipheriv, createHash } from 'crypto';
 import { Readable } from 'stream';
 import 'dotenv/config';
 
-// 🔥 GLOBAL TLS OVERRIDE: Defeats strict Node.js SSL handshake drops
+// 🔥 GLOBAL TLS OVERRIDE
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
-const { META, ANIME } = consumet;
+const { META } = consumet;
 
 // ==========================================
 // 🛡️ SECURE INITIALIZATION
@@ -35,9 +34,7 @@ const host = '0.0.0.0';
 // ==========================================
 // 🛡️ SECURITY MIDDLEWARE
 // ==========================================
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -48,8 +45,7 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     callback(null, true);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -59,7 +55,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-app.set('trust proxy', 1); // 🔥 Tells Express it is safely behind Railway's cloud proxy
+app.set('trust proxy', 1);
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -81,9 +77,7 @@ console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online! (Sec
 const CACHE = { trending: null, recent: null, schedule: null };
 const NODE_CACHE = new Map();
 
-const BANNED_ANIME_IDS = [
-  '209940' // Komekami! Girls
-];
+const BANNED_ANIME_IDS = ['209940'];
 
 const getCache = (key) => NODE_CACHE.get(key);
 const setCache = (key, data, ttlHours = 12) => {
@@ -134,73 +128,39 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
   if (CACHE.trending) return res.json({ results: CACHE.trending });
   try {
     const query = `
-      query { 
-        Page(page: 1, perPage: 20) { 
-          media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
-            id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status 
-          } 
-        } 
-      }`;
-    const response = await fetchWithBackoff(ANILIST_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
-    });
+      query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
+        id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status 
+      } } }`;
+    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
     const formatted = (json?.data?.Page?.media || []).map(anime => ({
-      id: anime?.id?.toString() || '',
-      title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
-      image: anime?.coverImage?.extraLarge || '',
-      bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '',
-      rating: anime?.averageScore || 0,
-      description: anime?.description || '',
-      type: anime?.type || "TV",
-      status: anime?.status || "RELEASING"
+      id: anime?.id?.toString() || '', title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
+      image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '',
+      rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
     CACHE.trending = formatted;
     return res.json({ results: formatted });
-  } catch {
-    return res.json({ results: CACHE.trending || [] });
-  }
+  } catch { return res.json({ results: CACHE.trending || [] }); }
 });
 
 app.get('/anime/zoro/recent-episodes', async (req, res) => {
   if (CACHE.recent) return res.json({ results: CACHE.recent });
   try {
     const query = `
-      query { 
-        Page(page: 1, perPage: 30) { 
-          airingSchedules(notYetAired: false, sort: TIME_DESC) { 
-            episode media { id title { english romaji } coverImage { extraLarge } type } 
-          } 
-        } 
-      }`;
-    const response = await fetchWithBackoff(ANILIST_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
-    });
+      query { Page(page: 1, perPage: 30) { airingSchedules(notYetAired: false, sort: TIME_DESC) { 
+        episode media { id title { english romaji } coverImage { extraLarge } type } 
+      } } }`;
+    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
     const rawList = (json?.data?.Page?.airingSchedules || []).map(item => ({
-      id: item?.media?.id?.toString() || '',
-      episode: item?.episode || 1,
-      episodeNumber: item?.episode || 1,
-      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
-      image: item?.media?.coverImage?.extraLarge || '',
-      type: item?.media?.type || "TV"
+      id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
+      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
     const unique = []; const seen = new Set();
-    for (const anime of rawList) {
-      if (!seen.has(anime.id)) {
-        seen.add(anime.id);
-        unique.push(anime);
-      }
-    }
+    for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
     CACHE.recent = unique.slice(0, 20);
     return res.json({ results: CACHE.recent });
-  } catch {
-    return res.json({ results: CACHE.recent || [] });
-  }
+  } catch { return res.json({ results: CACHE.recent || [] }); }
 });
 
 app.get('/anime/zoro/schedule', async (req, res) => {
@@ -213,39 +173,20 @@ app.get('/anime/zoro/schedule', async (req, res) => {
     const startUnix = Math.floor(startOfWeek.getTime() / 1000);
     const endUnix = startUnix + (7 * 24 * 60 * 60);
     const query = `
-      query ($start: Int, $end: Int) { 
-        Page(page: 1, perPage: 150) { 
-          airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { 
-            airingAt episode media { id title { english romaji } coverImage { extraLarge } type } 
-          } 
-        } 
-      }`;
-    const response = await fetchWithBackoff(ANILIST_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { start: startUnix, end: endUnix } })
-    });
+      query ($start: Int, $end: Int) { Page(page: 1, perPage: 150) { airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { 
+        airingAt episode media { id title { english romaji } coverImage { extraLarge } type } 
+      } } }`;
+    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { start: startUnix, end: endUnix } }) });
     const json = await response.json();
     const formatted = (json?.data?.Page?.airingSchedules || []).map(item => ({
-      id: item?.media?.id?.toString() || '',
-      episode: item?.episode || 1,
-      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
-      image: item?.media?.coverImage?.extraLarge || '',
-      type: item?.media?.type || "TV",
-      airingAt: item?.airingAt || 0
+      id: item?.media?.id?.toString() || '', episode: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
+      image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV", airingAt: item?.airingAt || 0
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
     const unique = []; const seen = new Set();
-    for (const anime of formatted) {
-      if (!seen.has(anime.id)) {
-        seen.add(anime.id);
-        unique.push(anime);
-      }
-    }
+    for (const anime of formatted) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
     CACHE.schedule = unique;
     return res.json({ results: CACHE.schedule });
-  } catch {
-    return res.json({ results: CACHE.schedule || [] });
-  }
+  } catch { return res.json({ results: CACHE.schedule || [] }); }
 });
 
 app.get('/anime/zoro/info/:id', async (req, res) => {
@@ -255,52 +196,31 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 
   try {
     const query = `
-      query ($id: Int) { 
-        Media (id: $id, type: ANIME) { 
-          id idMal title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
-          relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
-        } 
-      }`;
-    const response = await fetchWithBackoff(ANILIST_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { id: parseInt(id) } })
-    });
-
+      query ($id: Int) { Media (id: $id, type: ANIME) { 
+        id idMal title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
+        relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
+      } }`;
+    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(id) } }) });
     if (!response.ok) throw new Error("HTTP Error");
     const json = await response.json();
     const anime = json?.data?.Media;
     if (!anime) throw new Error("Missing data");
 
     let relations = (anime.relations?.edges || []).filter(edge => ['PREQUEL', 'SEQUEL', 'ALTERNATIVE', 'SPIN_OFF', 'SIDE_STORY'].includes(edge.relationType)).map(edge => ({
-      id: edge.node.id,
-      title: edge.node.title?.english || edge.node.title?.romaji || `${edge.node.format || 'TV'} Entry`,
-      image: edge.node.coverImage?.extraLarge || '',
-      type: edge.node.format || 'TV',
-      relationType: edge.relationType
+      id: edge.node.id, title: edge.node.title?.english || edge.node.title?.romaji || `${edge.node.format || 'TV'} Entry`,
+      image: edge.node.coverImage?.extraLarge || '', type: edge.node.format || 'TV', relationType: edge.relationType
     })).filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()));
 
     const payloadObj = {
-      id: anime.id?.toString() || id,
-      idMal: anime.idMal || null,
-      title: anime.title?.english || anime.title?.romaji || 'Series',
-      image: anime.coverImage?.extraLarge || '',
-      bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
-      description: anime.description || 'No synopsis available.',
-      genres: anime.genres || [],
-      rating: anime.averageScore || 0,
-      status: anime.status || 'UNKNOWN',
-      totalEpisodes: anime.episodes || 0,
-      type: anime.type || 'TV',
-      releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown',
-      relations
+      id: anime.id?.toString() || id, idMal: anime.idMal || null, title: anime.title?.english || anime.title?.romaji || 'Series',
+      image: anime.coverImage?.extraLarge || '', bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
+      description: anime.description || 'No synopsis available.', genres: anime.genres || [], rating: anime.averageScore || 0,
+      status: anime.status || 'UNKNOWN', totalEpisodes: anime.episodes || 0, type: anime.type || 'TV',
+      releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown', relations
     };
-
     setCache(cacheKey, payloadObj);
     return res.json(payloadObj);
-  } catch {
-    res.status(404).json({ error: "Not found" });
-  }
+  } catch { res.status(404).json({ error: "Not found" }); }
 });
 
 app.get('/anime/zoro/episodes/:id', async (req, res) => {
@@ -323,7 +243,7 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   try {
     const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
     if (consumetInfo?.episodes?.length > 0) {
-      const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number)));
+      const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number))).sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
       setCache(cacheKey, { episodes: sanitized });
       return res.json({ episodes: sanitized });
     }
@@ -339,25 +259,20 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
 });
 
 // ==========================================
-// 🛡️ DYNAMIC SSL PROXY ROUTES (NUCLEAR REWRITE PIPELINE)
+// 🛡️ DYNAMIC SSL PROXY ROUTES 
 // ==========================================
-function toAbsoluteUrl(url, baseUrl) {
-  try { return new URL(url, baseUrl).toString(); } catch { return url; }
-}
+function toAbsoluteUrl(url, baseUrl) { try { return new URL(url, baseUrl).toString(); } catch { return url; } }
 
 function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
   const effectiveReferer = referer && referer.trim().length > 0 ? referer : manifestUrl;
-
   const toProxyUrl = (rawUri) => {
     const trimmed = rawUri.trim();
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:") || trimmed.startsWith("#")) return rawUri;
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
-
     const isM3U8 = absolute.split('?')[0].endsWith('.m3u8');
     const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
     return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
-
   return manifest.split(/\r?\n/).map(line => {
     if (!line) return line;
     if (line.startsWith("#")) {
@@ -377,46 +292,23 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
   const baseUrl = `${protocol}://${req.get('host')}`;
 
   try {
-    let origin = "";
-    try { origin = new URL(referer).origin; } catch (e) { }
+    let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
+    const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" };
 
-    const headers = {
-      "Referer": referer,
-      "Origin": origin || "https://kwik.cx",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "*/*"
-    };
-
-    console.log(`[PROXY] Intercepting Playlist: ${targetUrl.substring(0, 80)}...`);
     const fetchRes = await fetch(targetUrl, { headers });
-
-    if (!fetchRes.ok) {
-      console.error(`[PROXY] M3U8 upstream block. HTTP ${fetchRes.status}`);
-      return res.status(502).send("Proxy Stream Error");
-    }
+    if (!fetchRes.ok) return res.status(502).send("Proxy Stream Error");
 
     let manifestText = await fetchRes.text();
-
-    manifestText = manifestText.replace(/,\s*CODECS="[^"]+"/gi, '');
-    manifestText = manifestText.replace(/CODECS="[^"]+",\s*/gi, '');
-    manifestText = manifestText.replace(/CODECS="[^"]+"/gi, '');
-    manifestText = manifestText.replace(/,\s*CODECS=[^,\s]+/gi, '');
-    manifestText = manifestText.replace(/CODECS=[^,\s]+,\s*/gi, '');
-    manifestText = manifestText.replace(/CODECS=[^,\s]+/gi, '');
+    manifestText = manifestText.replace(/,\s*CODECS="[^"]+"/gi, '').replace(/CODECS="[^"]+",\s*/gi, '').replace(/CODECS="[^"]+"/gi, '');
+    manifestText = manifestText.replace(/,\s*CODECS=[^,\s]+/gi, '').replace(/CODECS=[^,\s]+,\s*/gi, '').replace(/CODECS=[^,\s]+/gi, '');
 
     const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl);
-
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0');
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
-
     return res.status(fetchRes.status).send(rewritten);
-  } catch (err) {
-    console.error(`[PROXY] stream.m3u8 fetch failed:`, err.message);
-    res.status(502).send("Proxy Stream Error");
-  }
+  } catch (err) { res.status(502).send("Proxy Stream Error"); }
 });
 
 app.get('/proxy/stream', async (req, res) => {
@@ -425,93 +317,52 @@ app.get('/proxy/stream', async (req, res) => {
   if (!targetUrl) return res.status(400).send("Missing URL");
 
   try {
-    let origin = "";
-    try { origin = new URL(referer).origin; } catch (e) { }
-
-    const headers = {
-      "Referer": referer,
-      "Origin": origin || "https://kwik.cx",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "*/*",
-      "Accept-Encoding": "identity"
-    };
-
+    let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
+    const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*", "Accept-Encoding": "identity" };
     if (req.headers.range) headers.Range = req.headers.range;
 
     const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow' });
-
-    if (!fetchRes.ok) {
-      console.error(`[PROXY] Chunk upstream block. HTTP ${fetchRes.status} on ${targetUrl}`);
-      return res.status(502).send();
-    }
+    if (!fetchRes.ok) return res.status(502).send();
 
     let upstreamType = (fetchRes.headers.get('content-type') || 'video/mp2t').toLowerCase();
-
-    if (upstreamType.includes('audio/,') || upstreamType.includes('text/plain')) {
-      upstreamType = 'video/mp2t';
-    }
+    if (upstreamType.includes('audio/,') || upstreamType.includes('text/plain')) upstreamType = 'video/mp2t';
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges');
     res.setHeader('Content-Type', upstreamType);
-
-    if (fetchRes.headers.has('content-range')) {
-      res.setHeader('Content-Range', fetchRes.headers.get('content-range'));
-    }
-    if (fetchRes.headers.has('accept-ranges')) {
-      res.setHeader('Accept-Ranges', fetchRes.headers.get('accept-ranges'));
-    }
+    if (fetchRes.headers.has('content-range')) res.setHeader('Content-Range', fetchRes.headers.get('content-range'));
+    if (fetchRes.headers.has('accept-ranges')) res.setHeader('Accept-Ranges', fetchRes.headers.get('accept-ranges'));
 
     res.status(fetchRes.status);
-
     const nodeStream = Readable.fromWeb(fetchRes.body);
     req.on('close', () => nodeStream.destroy());
-    nodeStream.on('error', (err) => {
-      if (!res.headersSent) res.status(502).end();
-      else res.end();
-    });
-    res.on('error', (err) => {
-      nodeStream.destroy();
-    });
+    nodeStream.on('error', () => { if (!res.headersSent) res.status(502).end(); else res.end(); });
+    res.on('error', () => { nodeStream.destroy(); });
     nodeStream.pipe(res);
-
-  } catch (err) {
-    console.error(`[PROXY] chunk stream dropped:`, err.message);
-    return res.status(502).send("Proxy Stream Error");
-  }
+  } catch (err) { return res.status(502).send("Proxy Stream Error"); }
 });
 
 // ==========================================
-// 🛑 WATCH ROUTE (DYNAMIC CLOUD LINKING)
+// 🛑 WATCH ROUTE (DYNAMIC CLOUD LINKING & MAPPING CACHE)
 // ==========================================
 app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const { episodeId } = req.params;
   const lang = req.query.lang === 'dub' ? 'dub' : 'sub';
 
   const cacheKey = `watch-extracted-${episodeId}-${lang}`;
-  if (getCache(cacheKey)) {
-    return res.json(getCache(cacheKey));
-  }
+  if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
   const baseUrl = `${protocol}://${req.get('host')}`;
 
   const enrichWithSkipTimes = async (responseData, resolvedAnimeId, resolvedEpNum) => {
     if (!responseData) return responseData;
-    let intro = responseData.intro || null;
-    let outro = responseData.outro || null;
-
+    let intro = responseData.intro || null; let outro = responseData.outro || null;
     if ((!intro || !outro) && resolvedAnimeId && resolvedEpNum) {
       try {
         const parsedEp = parseInt(resolvedEpNum, 10);
         if (!isNaN(parsedEp)) {
-          const { data: customSkip } = await supabase
-            .from('custom_skip_times')
-            .select('*')
-            .eq('episode_number', parsedEp)
-            .or(`anime_id.eq.${resolvedAnimeId},mal_id.eq.${resolvedAnimeId}`)
-            .maybeSingle();
-
+          const { data: customSkip } = await supabase.from('custom_skip_times').select('*').eq('episode_number', parsedEp).or(`anime_id.eq.${resolvedAnimeId},mal_id.eq.${resolvedAnimeId}`).maybeSingle();
           if (customSkip) {
             if (!intro && customSkip.op_start !== null && customSkip.op_end !== null) intro = { start: customSkip.op_start, end: customSkip.op_end };
             if (!outro && customSkip.ed_start !== null && customSkip.ed_end !== null) outro = { start: customSkip.ed_start, end: customSkip.ed_end };
@@ -527,44 +378,48 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   if (episodeId.startsWith('allanime-')) {
     const parts = episodeId.split('-ep-');
-    requestedAnimeId = parts[0].split('-vid-')[0].replace('allanime-', '');
-    epNum = parts[1] || epNum;
+    requestedAnimeId = parts[0].split('-vid-')[0].replace('allanime-', ''); epNum = parts[1] || epNum;
   } else if (episodeId.startsWith('auto-')) {
     const parts = episodeId.split('-');
-    requestedAnimeId = parts[1] || requestedAnimeId;
-    epNum = parts[2] || epNum;
+    requestedAnimeId = parts[1] || requestedAnimeId; epNum = parts[2] || epNum;
   } else if (episodeId.includes('-episode-')) {
     const parts = episodeId.split('-episode-');
-    requestedAnimeId = parts[0];
-    epNum = parts[1];
+    requestedAnimeId = parts[0]; epNum = parts[1];
   } else {
     requestedAnimeId = requestedAnimeId || episodeId.split('-')[0] || episodeId;
   }
   epNum = epNum || "1";
 
-  // 🔥 CLOUD ROUTING: Dynamically connects to Railway's Miruro Python Service
   const MIRURO_API_BASE = process.env.EXTRACTOR_API_URL ? process.env.EXTRACTOR_API_URL.replace(/\/+$/, '') : 'http://127.0.0.1:8000';
 
   try {
-    console.log(`[WATCH] Requesting episode list mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
-    const epListController = new AbortController();
-    // 🔥 COLD START ARMOR: Upped timeout to 20 seconds so Railway can wake up the sleeping Python container
-    const epListTimeout = setTimeout(() => epListController.abort(), 20000);
+    // 🔥 THE SPEED FIX: Aggressive Caching for the Episode Map Request
+    const epListCacheKey = `miruro-eplist-${requestedAnimeId}`;
+    let epListData = getCache(epListCacheKey);
 
-    const epListRes = await fetch(`${MIRURO_API_BASE}/episodes/${requestedAnimeId}`, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
-      signal: epListController.signal
-    });
-    clearTimeout(epListTimeout);
+    if (!epListData) {
+      console.log(`[WATCH] Requesting episode mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
+      const epListController = new AbortController();
+      const epListTimeout = setTimeout(() => epListController.abort(), 20000);
+      const epListRes = await fetch(`${MIRURO_API_BASE}/episodes/${requestedAnimeId}`, {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
+        signal: epListController.signal
+      });
+      clearTimeout(epListTimeout);
 
-    if (epListRes.ok) {
-      const epListData = await epListRes.json();
+      if (epListRes.ok) {
+        epListData = await epListRes.json();
+        setCache(epListCacheKey, epListData, 12); // 🔥 Saves mapping to memory for 12 hours
+      }
+    } else {
+      console.log(`[WATCH] Loading episode mappings from internal memory cache for ID: ${requestedAnimeId} ⚡`);
+    }
+
+    if (epListData) {
       const targetParsedNum = parseInt(epNum, 10);
-
       let extractedWatchPath = null;
       let finalStreamPayload = null;
       const availableProviders = epListData?.providers || {};
-
       const providerKeys = ['kiwi', 'ally', 'zoro', 'arc', 'jet', ...Object.keys(availableProviders)];
 
       for (const pKey of [...new Set(providerKeys)]) {
@@ -572,12 +427,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         const matchedEp = providerEps.find(e => parseInt(e.number, 10) === targetParsedNum);
 
         if (matchedEp?.id) {
-          console.log(`[WATCH] Testing provider '${pKey}' with path: ${matchedEp.id}`);
+          console.log(`[WATCH] Extracting video stream from '${pKey}': ${matchedEp.id}`);
           const cleanPath = matchedEp.id.startsWith('/') ? matchedEp.id.slice(1) : matchedEp.id;
 
           try {
             const streamController = new AbortController();
-            // 🔥 COLD START ARMOR: Upped timeout to 20 seconds
             const streamTimeout = setTimeout(() => streamController.abort(), 20000);
             const streamRes = await fetch(`${MIRURO_API_BASE}/${cleanPath}`, {
               headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
@@ -590,7 +444,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               if (payload?.streams?.length > 0) {
                 extractedWatchPath = cleanPath;
                 finalStreamPayload = payload;
-                console.log(`[WATCH] Successfully locked stream on provider '${pKey}'!`);
+                console.log(`[WATCH] Successfully locked stream on '${pKey}'!`);
                 break;
               }
             }
@@ -606,22 +460,13 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           sources: activeStreams.map(st => {
             const rawUrl = st.url;
             const isIframe = st.type === 'embed' || rawUrl.includes('/e/') || rawUrl.includes('embed');
-            if (isIframe) {
-              return {
-                url: rawUrl,
-                quality: st.quality || 'embed',
-                isM3U8: false,
-                isIframe: true
-              };
-            }
+            if (isIframe) { return { url: rawUrl, quality: st.quality || 'embed', isM3U8: false, isIframe: true }; }
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
             const targetReferer = st.referer || 'https://kwik.cx/';
             const proxyEndpoint = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
             return {
               url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
-              quality: st.quality || 'default',
-              isM3U8: isM3U8,
-              isIframe: false
+              quality: st.quality || 'default', isM3U8: isM3U8, isIframe: false
             };
           }),
           subtitles: finalStreamPayload?.subtitles || [],
@@ -630,8 +475,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         };
 
         const enrichedPayload = await enrichWithSkipTimes(finalPayload, requestedAnimeId, epNum);
-        setCache(cacheKey, enrichedPayload);
-        console.log(`[WATCH] ✅ High-fidelity manifest transport securely acquired via API pipeline!`);
+        setCache(cacheKey, enrichedPayload); // 🔥 Saves stream link to memory
         return res.json(enrichedPayload);
       }
     }
@@ -672,8 +516,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           const rawUrl = st.url;
           const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
           const proxyEndpoint = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-          const cacheBuster = isM3U8 ? `&cb=${Date.now()}` : '';
-          return { ...st, url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent('https://gogoanime.co/')}${cacheBuster}` };
+          return { ...st, url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent('https://gogoanime.co/')}` };
         })
       };
       const enriched = await enrichWithSkipTimes(proxyWrappedData, fallbackAnimeId, fallbackEpNum);
