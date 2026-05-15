@@ -354,6 +354,8 @@ export default function AnimeDetails() {
 
                 let targetEpToPlay = null;
                 let seasonContextId = id;
+
+                // 🔥 URL PARSER FIX: Aggressively checks for ?ep=6 so clicking a card grabs the exact episode!
                 const queryParams = new URLSearchParams(window.location.search);
                 const epFromUrl = queryParams.get('ep');
 

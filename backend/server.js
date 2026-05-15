@@ -314,14 +314,24 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     const j = await r.json();
     if (j?.data?.Media) {
       format = j.data.Media.format || "TV";
-      targetEpisodes = j.data.Media.nextAiringEpisode?.episode ? (j.data.Media.nextAiringEpisode.episode - 1) : (j.data.Media.episodes || 12);
+      // 🔥 EPISODE CAP FIX: This guarantees we never generate 13 episodes if only 6 are out.
+      if (j.data.Media.nextAiringEpisode?.episode) {
+        targetEpisodes = j.data.Media.nextAiringEpisode.episode - 1;
+      } else if (j.data.Media.episodes) {
+        targetEpisodes = j.data.Media.episodes;
+      } else {
+        targetEpisodes = 12;
+      }
     }
   } catch { }
 
   try {
     const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
     if (consumetInfo?.episodes?.length > 0) {
-      const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number)));
+      // 🔥 SORTING FIX: Forces episodes to strictly list from Episode 1 to latest, stopping the player from starting at Ep 128
+      const sanitized = consumetInfo.episodes
+        .filter(ep => !isNaN(parseFloat(ep.number)))
+        .sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
       setCache(cacheKey, { episodes: sanitized });
       return res.json({ episodes: sanitized });
     }
@@ -392,8 +402,20 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     }
 
     let manifestText = await fetchRes.text();
+
+    // Annihilate codecs
+    manifestText = manifestText.replace(/,\s*CODECS="[^"]+"/gi, '');
+    manifestText = manifestText.replace(/CODECS="[^"]+",\s*/gi, '');
+    manifestText = manifestText.replace(/CODECS="[^"]+"/gi, '');
+    manifestText = manifestText.replace(/,\s*CODECS=[^,\s]+/gi, '');
+    manifestText = manifestText.replace(/CODECS=[^,\s]+,\s*/gi, '');
+    manifestText = manifestText.replace(/CODECS=[^,\s]+/gi, '');
+
     const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl);
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -524,7 +546,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  // 🔥 THE FIX: Dynamically routes to Railway in production, or localhost on your laptop
+  // 🔥 CLOUD ROUTING: Dynamically connects to Railway's Miruro Python Service
   const MIRURO_API_BASE = process.env.EXTRACTOR_API_URL ? process.env.EXTRACTOR_API_URL.replace(/\/+$/, '') : 'http://127.0.0.1:8000';
 
   try {
@@ -548,8 +570,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       const providerKeys = ['kiwi', 'ally', 'zoro', 'arc', 'jet', ...Object.keys(availableProviders)];
 
+      // 🔥 I COMPLETELY REMOVED THE KIWI BLOCK HERE SO IT CAN PULL THE IFRAME SAFELY
       for (const pKey of [...new Set(providerKeys)]) {
-        if (pKey === 'kiwi') continue;
         const providerEps = availableProviders[pKey]?.episodes?.[lang] || availableProviders[pKey]?.episodes?.['sub'] || [];
         const matchedEp = providerEps.find(e => parseInt(e.number, 10) === targetParsedNum);
 
@@ -586,11 +608,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         const finalPayload = {
           sources: activeStreams.map(st => {
             const rawUrl = st.url;
-            const isIframe = st.type === 'embed';
+            const isIframe = st.type === 'embed' || rawUrl.includes('/e/') || rawUrl.includes('embed');
             if (isIframe) {
               return {
                 url: rawUrl,
-                quality: st.quality || 'default',
+                quality: st.quality || 'embed',
                 isM3U8: false,
                 isIframe: true
               };
@@ -638,7 +660,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] ? `${STATIC_NATIVE_MAP[fallbackAnimeId]}-episode-${fallbackEpNum}` : `${fallbackAnimeId}-episode-${fallbackEpNum}`;
     if (!STATIC_NATIVE_MAP[fallbackAnimeId]) {
       try {
-        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 3500);
+        // Extended timeout to ensure slug resolves correctly
+        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 8000);
         const actualTargetEp = (consumetInfo?.episodes || []).find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
         if (actualTargetEp?.id) targetSlug = actualTargetEp.id;
       } catch { }
@@ -653,7 +676,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           const rawUrl = st.url;
           const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
           const proxyEndpoint = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-          return { ...st, url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent('https://gogoanime.co/')}` };
+          const cacheBuster = isM3U8 ? `&cb=${Date.now()}` : '';
+          return { ...st, url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent('https://gogoanime.co/')}${cacheBuster}` };
         })
       };
       const enriched = await enrichWithSkipTimes(proxyWrappedData, fallbackAnimeId, fallbackEpNum);
