@@ -1,6 +1,6 @@
 // src/pages/Home.tsx
 import { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import HeroBanner from '../components/HeroBanner';
 import TrendingSidebar from '../components/TrendingSidebar';
 import { type AnimeResult } from '../services/consumet';
@@ -24,7 +24,6 @@ export default function Home() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [loading, setLoading] = useState(true);
 
-    const navigate = useNavigate();
     const slideIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
@@ -165,10 +164,11 @@ export default function Home() {
                                 {history.map((item) => {
                                     const progressPercent = item.duration > 0 ? (item.progress / item.duration) * 100 : 0;
                                     return (
-                                        <div
+                                        // 🔥 CHANGED TO <Link>
+                                        <Link
                                             key={`history-${item.anime_id}`}
-                                            onClick={() => navigate(`/anime/${item.anime_id}?ep=${item.episode_id}`)}
-                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3"
+                                            to={`/anime/${item.anime_id}?ep=${item.episode_id}`}
+                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3 block"
                                         >
                                             <div className="w-full aspect-video rounded-xl overflow-hidden bg-[#0a0a0a] border border-[#222] group-hover:border-blue-500/50 transition-all duration-300 shadow-lg relative">
                                                 <img
@@ -207,7 +207,7 @@ export default function Home() {
                                             <h3 className="text-sm font-bold text-gray-200 line-clamp-1 group-hover:text-blue-400 transition-colors px-1">
                                                 {item.anime_title}
                                             </h3>
-                                        </div>
+                                        </Link>
                                     );
                                 })}
                             </div>
@@ -228,10 +228,10 @@ export default function Home() {
                             ))
                         ) : (
                             schedule.slice(0, 20).map((anime, index) => (
-                                <div
+                                // 🔥 CHANGED TO <Link>
+                                <Link
                                     key={`latest-${anime.id}-${index}`}
-                                    // 🔥 THE FIX: Now passes the exact episode number to the URL!
-                                    onClick={() => navigate(`/anime/${anime.id}?ep=${(anime as any).episode || 1}`)}
+                                    to={`/anime/${anime.id}?ep=${(anime as any).episode || 1}`}
                                     className="group cursor-pointer block"
                                 >
                                     <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
@@ -252,7 +252,7 @@ export default function Home() {
                                         {anime.title}
                                     </h4>
                                     <p className="text-[10px] text-gray-600 font-bold mt-1 uppercase tracking-widest px-1">TV Series</p>
-                                </div>
+                                </Link>
                             ))
                         )}
                     </div>

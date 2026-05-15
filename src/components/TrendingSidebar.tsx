@@ -1,9 +1,7 @@
 // src/components/TrendingSidebar.tsx
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 export default function TrendingSidebar({ trendingList }: { trendingList: any[] }) {
-  const navigate = useNavigate(); // Navigation hook
-
   return (
     <div className="bg-[#040404]/80 backdrop-blur-3xl rounded-[38px] border border-white/10 w-[360px] p-8 shadow-[0_30px_100px_rgba(0,0,0,0.9)] ring-1 ring-inset ring-white/10">
       <div className="flex items-center justify-between mb-10">
@@ -18,11 +16,11 @@ export default function TrendingSidebar({ trendingList }: { trendingList: any[] 
 
       <div className="flex flex-col gap-6">
         {trendingList.slice(0, 10).map((anime, index) => (
-          // WIRED UP: Click routes to details page
-          <div
+          // 🔥 CHANGED TO <Link> TAG SO YOU CAN RIGHT CLICK -> OPEN IN NEW TAB
+          <Link
             key={anime.id}
-            onClick={() => navigate(`/anime/${anime.id}`)}
-            className="flex items-center gap-5 group cursor-pointer"
+            to={`/anime/${anime.id}`}
+            className="flex items-center gap-5 group cursor-pointer block"
           >
             <div className="text-2xl font-black italic text-white/5 group-hover:text-blue-600/40 transition-all duration-500 w-8">
               {index + 1}
@@ -46,7 +44,7 @@ export default function TrendingSidebar({ trendingList }: { trendingList: any[] 
                 className="w-12 h-16 object-cover scale-110 group-hover:scale-100 transition-transform duration-500"
               />
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
