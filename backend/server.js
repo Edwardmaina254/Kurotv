@@ -314,24 +314,14 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     const j = await r.json();
     if (j?.data?.Media) {
       format = j.data.Media.format || "TV";
-      // 🔥 EPISODE CAP FIX: This guarantees we never generate 13 episodes if only 6 are out.
-      if (j.data.Media.nextAiringEpisode?.episode) {
-        targetEpisodes = j.data.Media.nextAiringEpisode.episode - 1;
-      } else if (j.data.Media.episodes) {
-        targetEpisodes = j.data.Media.episodes;
-      } else {
-        targetEpisodes = 12;
-      }
+      targetEpisodes = j.data.Media.nextAiringEpisode?.episode ? (j.data.Media.nextAiringEpisode.episode - 1) : (j.data.Media.episodes || 12);
     }
   } catch { }
 
   try {
     const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
     if (consumetInfo?.episodes?.length > 0) {
-      // 🔥 SORTING FIX: Forces episodes to strictly list from Episode 1 to latest, stopping the player from starting at Ep 128
-      const sanitized = consumetInfo.episodes
-        .filter(ep => !isNaN(parseFloat(ep.number)))
-        .sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
+      const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number)));
       setCache(cacheKey, { episodes: sanitized });
       return res.json({ episodes: sanitized });
     }
@@ -395,15 +385,16 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
       "Accept": "*/*"
     };
 
+    console.log(`[PROXY] Intercepting Playlist: ${targetUrl.substring(0, 80)}...`);
     const fetchRes = await fetch(targetUrl, { headers });
 
     if (!fetchRes.ok) {
+      console.error(`[PROXY] M3U8 upstream block. HTTP ${fetchRes.status}`);
       return res.status(502).send("Proxy Stream Error");
     }
 
     let manifestText = await fetchRes.text();
 
-    // Annihilate codecs
     manifestText = manifestText.replace(/,\s*CODECS="[^"]+"/gi, '');
     manifestText = manifestText.replace(/CODECS="[^"]+",\s*/gi, '');
     manifestText = manifestText.replace(/CODECS="[^"]+"/gi, '');
@@ -421,6 +412,7 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
 
     return res.status(fetchRes.status).send(rewritten);
   } catch (err) {
+    console.error(`[PROXY] stream.m3u8 fetch failed:`, err.message);
     res.status(502).send("Proxy Stream Error");
   }
 });
@@ -447,6 +439,7 @@ app.get('/proxy/stream', async (req, res) => {
     const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow' });
 
     if (!fetchRes.ok) {
+      console.error(`[PROXY] Chunk upstream block. HTTP ${fetchRes.status} on ${targetUrl}`);
       return res.status(502).send();
     }
 
@@ -481,6 +474,7 @@ app.get('/proxy/stream', async (req, res) => {
     nodeStream.pipe(res);
 
   } catch (err) {
+    console.error(`[PROXY] chunk stream dropped:`, err.message);
     return res.status(502).send("Proxy Stream Error");
   }
 });
@@ -552,7 +546,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
     console.log(`[WATCH] Requesting episode list mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
     const epListController = new AbortController();
-    const epListTimeout = setTimeout(() => epListController.abort(), 6000);
+    // 🔥 COLD START ARMOR: Upped timeout to 20 seconds so Railway can wake up the sleeping Python container
+    const epListTimeout = setTimeout(() => epListController.abort(), 20000);
 
     const epListRes = await fetch(`${MIRURO_API_BASE}/episodes/${requestedAnimeId}`, {
       headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
@@ -570,7 +565,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       const providerKeys = ['kiwi', 'ally', 'zoro', 'arc', 'jet', ...Object.keys(availableProviders)];
 
-      // 🔥 I COMPLETELY REMOVED THE KIWI BLOCK HERE SO IT CAN PULL THE IFRAME SAFELY
       for (const pKey of [...new Set(providerKeys)]) {
         const providerEps = availableProviders[pKey]?.episodes?.[lang] || availableProviders[pKey]?.episodes?.['sub'] || [];
         const matchedEp = providerEps.find(e => parseInt(e.number, 10) === targetParsedNum);
@@ -581,7 +575,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
           try {
             const streamController = new AbortController();
-            const streamTimeout = setTimeout(() => streamController.abort(), 6000);
+            // 🔥 COLD START ARMOR: Upped timeout to 20 seconds
+            const streamTimeout = setTimeout(() => streamController.abort(), 20000);
             const streamRes = await fetch(`${MIRURO_API_BASE}/${cleanPath}`, {
               headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
               signal: streamController.signal
@@ -660,7 +655,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] ? `${STATIC_NATIVE_MAP[fallbackAnimeId]}-episode-${fallbackEpNum}` : `${fallbackAnimeId}-episode-${fallbackEpNum}`;
     if (!STATIC_NATIVE_MAP[fallbackAnimeId]) {
       try {
-        // Extended timeout to ensure slug resolves correctly
         const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 8000);
         const actualTargetEp = (consumetInfo?.episodes || []).find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
         if (actualTargetEp?.id) targetSlug = actualTargetEp.id;
