@@ -18,19 +18,20 @@ export default function HeroBanner({ anime, currentIndex, total, onNext, onPrev,
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#040404] group flex flex-col justify-center">
+      {/* 🖼️ HIGH FIDELITY PANORAMIC ART: Scales content cleanly with soft transition zooms */}
       <img
         src={anime.bannerImage || anime.image}
         alt={anime.title}
         className="absolute inset-0 w-full h-full object-cover object-top opacity-100 transition-opacity duration-1000 animate-in fade-in zoom-in-105 duration-[3000ms]"
       />
 
-      <div className="absolute inset-0 bg-gradient-to-r from-[#040404] via-[#040404]/60 to-transparent z-10" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#040404] via-transparent to-transparent z-10" />
+      {/* 🔥 PREMIUM GRADIENT MATRIX: Dual-directional multi-stops ensuring text reads beautifully over detailed frames */}
+      <div className="absolute inset-0 bg-gradient-to-r from-[#040404] via-[#040404]/70 to-transparent z-10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#040404] via-transparent via-[#040404]/20 to-[#040404]/40 z-10" />
 
-      {/* Perfectly balanced padding so content breathes beautifully without exceeding container bounds */}
-      <div className="relative z-20 w-full flex flex-col justify-center px-12 max-w-4xl pt-20 pb-6 my-auto">
+      {/* Balanced layout structure perfectly mapped for maximum desktop scannability */}
+      <div className="relative z-20 w-full flex flex-col justify-center px-12 max-w-4xl pt-16 pb-6 my-auto">
 
-        {/* shrink-0 and pb-1 completely stop flexbox from chopping off the bottom letters */}
         <h1 className="text-4xl md:text-[52px] font-black mb-4 leading-[1.15] text-white drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)] tracking-tight font-['Oswald'] uppercase animate-in fade-in slide-in-from-left-8 duration-700 line-clamp-2 shrink-0 pb-1">
           {anime.title}
         </h1>

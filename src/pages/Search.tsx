@@ -98,6 +98,8 @@ export default function Search() {
         const fetchSearchResults = async () => {
             setLoading(true);
             try {
+                // 🔥 PROTOCOL-SAFE STRING SANITIZER
+                // Encodes parameter extraction safely to guarantee perfect API parameter boundaries
                 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
                 const searchStr = query ? query.trim() : '';
 
@@ -105,9 +107,10 @@ export default function Search() {
                 if (searchStr) url += `&q=${encodeURIComponent(searchStr)}`;
                 if (genre) url += `&genres=${encodeURIComponent(genre)}`;
                 if (format) url += `&format=${encodeURIComponent(format)}`;
+
                 const res = await fetch(url);
                 if (!res.ok) {
-                    throw new Error(`HTTP Error: ${res.status}`);
+                    throw new Error(`HTTP Gateway Status: ${res.status}`);
                 }
 
                 const data = await res.json();
@@ -119,7 +122,7 @@ export default function Search() {
                 }
                 setHasNextPage(data.hasNextPage);
             } catch (error) {
-                console.error("Search fetch failed:", error);
+                console.error("Search fetch gateway dropped:", error);
                 if (page === 1) setResults([]);
             } finally {
                 setLoading(false);

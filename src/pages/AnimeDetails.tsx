@@ -67,6 +67,8 @@ export default function AnimeDetails() {
     const [isInWatchlist, setIsInWatchlist] = useState(false);
     const [watchlistLoading, setWatchlistLoading] = useState(false);
 
+    const [availableSources, setAvailableSources] = useState<any[]>([]);
+    const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
     const [streamData, setStreamData] = useState<{ url: string; isIframe: boolean; isM3U8?: boolean } | null>(null);
     const [isFetchingStream, setIsFetchingStream] = useState(false);
     const [streamError, setStreamError] = useState<string | null>(null);
@@ -80,22 +82,7 @@ export default function AnimeDetails() {
     const [currentQuality, setCurrentQuality] = useState<number>(-1);
     const [showSettings, setShowSettings] = useState(false);
 
-    const [autoPlay, setAutoPlay] = useState<boolean>(() => localStorage.getItem('kuro-auto-play') !== 'false');
-    const [autoSkip, setAutoSkip] = useState<boolean>(() => localStorage.getItem('kuro-auto-skip') === 'true');
-    const [autoNext, setAutoNext] = useState<boolean>(() => localStorage.getItem('kuro-auto-next') !== 'false');
-
-    const toggleSetting = (key: string, currentVal: boolean, setter: React.Dispatch<React.SetStateAction<boolean>>) => {
-        const newVal = !currentVal;
-        setter(newVal);
-        localStorage.setItem(key, newVal.toString());
-    };
-
     const [skipTimes, setSkipTimes] = useState<{ op: { start: number, end: number } | null, ed: { start: number, end: number } | null }>({ op: null, ed: null });
-
-    const bingeSettingsRef = useRef({ autoPlay, autoSkip, autoNext, skipTimes });
-    useEffect(() => {
-        bingeSettingsRef.current = { autoPlay, autoSkip, autoNext, skipTimes };
-    }, [autoPlay, autoSkip, autoNext, skipTimes]);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -218,41 +205,44 @@ export default function AnimeDetails() {
             try {
                 const initialInfoRes = await fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null);
                 const initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
+
+                if (cancelRef.cancelled) return;
                 setAnimeFetchResult(initialInfo);
+
                 if (!initialInfo || !initialInfo.title) {
                     setError("Anime data not found.");
                     setLoading(false);
                     return;
                 }
 
+                const baseEpsRes = await fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null);
+                const baseEpsData = baseEpsRes && baseEpsRes.ok ? await baseEpsRes.json() : { episodes: [] };
+                const baseEpisodes = baseEpsData.episodes || [];
+
+                const safeBaseSeason: ExtendedAnimeDetails = {
+                    id: initialInfo.id?.toString() || id,
+                    title: initialInfo.title,
+                    image: initialInfo.image || '',
+                    bannerImage: initialInfo.bannerImage || initialInfo.image || '',
+                    description: initialInfo.description || 'No synopsis available.',
+                    genres: initialInfo.genres || [],
+                    rating: initialInfo.rating || 'N/A',
+                    status: initialInfo.status || 'UNKNOWN',
+                    type: initialInfo.type || 'TV',
+                    releaseDate: initialInfo.releaseDate || 'Unknown',
+                    episodes: baseEpisodes,
+                    totalEpisodes: initialInfo.totalEpisodes || baseEpisodes.length || 0,
+                    url: initialInfo.url || `/anime/${id}`,
+                    _shortLabel: 'Season 1',
+                    _sortScore: 0
+                };
+
                 const relatedIds = (initialInfo.relations || [])
                     .map((r: Relation) => parseInt(r.id.toString()))
                     .filter((n: number) => !isNaN(n));
 
                 const titleLower = (initialInfo.title || '').toLowerCase();
-
                 const chainCollected = new Set<number>([parseInt(id), ...relatedIds]);
-
-                const isJojoContext = titleLower.includes('jojo') ||
-                    titleLower.includes('phantom blood') ||
-                    titleLower.includes('stardust crusaders') ||
-                    titleLower.includes('diamond is unbreakable') ||
-                    titleLower.includes('golden wind') ||
-                    titleLower.includes('stone ocean') ||
-                    titleLower.includes('steel ball run');
-
-                const isMhaContext = titleLower.includes('my hero academia') ||
-                    titleLower.includes('boku no hero academia');
-
-                if (isJojoContext) {
-                    [14719, 20474, 20799, 21440, 36361, 102883, 127720, 131586, 163262].forEach(fid => chainCollected.add(fid));
-                } else if (titleLower.includes('attack on titan') || titleLower.includes('shingeki no kyojin')) {
-                    [16498, 20958, 99147, 104578, 110277, 131681, 142856].forEach(fid => chainCollected.add(fid));
-                } else if (titleLower.includes('demon slayer') || titleLower.includes('kimetsu no yaiba')) {
-                    [101922, 127230, 121031, 128851, 142329, 166240, 171424].forEach(fid => chainCollected.add(fid));
-                } else if (isMhaContext) {
-                    [21459, 21856, 100166, 104276, 117193, 139630, 163139, 182896].forEach(fid => chainCollected.add(fid));
-                }
 
                 const allIdsToFetch = Array.from(chainCollected);
 
@@ -266,252 +256,89 @@ export default function AnimeDetails() {
                     }
                 `;
 
-                await new Promise(res => setTimeout(res, 350));
+                let compiledSeasons: ExtendedAnimeDetails[] = [];
+                try {
+                    const [sortingRes, ...episodesResponses] = await Promise.all([
+                        fetch('https://graphql.anilist.co', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ query: sortingQuery, variables: { ids: allIdsToFetch } })
+                        }).then(r => {
+                            if (!r.ok) throw new Error("AniList rate limit hit");
+                            return r.json();
+                        }).catch(() => null),
 
-                const [sortingRes, ...episodesResponses] = await Promise.all([
-                    fetch('https://graphql.anilist.co', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query: sortingQuery, variables: { ids: allIdsToFetch } })
-                    }).then(r => r.json()).catch(() => null),
+                        ...allIdsToFetch.map(seasonId =>
+                            fetch(`${apiUrl}/anime/zoro/episodes/${seasonId}`)
+                                .then(r => r.json())
+                                .catch(() => ({ episodes: [] }))
+                        )
+                    ]);
 
-                    ...allIdsToFetch.map(seasonId =>
-                        fetch(`${apiUrl}/anime/zoro/episodes/${seasonId}`)
-                            .then(r => r.json())
-                            .catch(() => ({ episodes: [] }))
-                    )
-                ]);
+                    const rawMediaNodes = sortingRes?.data?.Page?.media || [];
+                    const targetMalNode = rawMediaNodes.find((m: any) => m.id.toString() === id);
+                    if (targetMalNode?.idMal) setMalId(targetMalNode.idMal);
 
-                const rawMediaNodes = sortingRes?.data?.Page?.media || [];
+                    const episodesMap = new Map();
+                    allIdsToFetch.forEach((seasonId, index) => {
+                        episodesMap.set(seasonId.toString(), episodesResponses[index]?.episodes || []);
+                    });
 
-                const targetMalNode = rawMediaNodes.find((m: any) => m.id.toString() === id);
-                if (targetMalNode?.idMal) setMalId(targetMalNode.idMal);
+                    if (rawMediaNodes.length > 0) {
+                        compiledSeasons = rawMediaNodes.map((m: any) => {
+                            const year = m.startDate?.year || 9999;
+                            const month = m.startDate?.month || 1;
+                            const day = m.startDate?.day || 1;
+                            const sortScore = year * 10000 + month * 100 + day;
 
-                const episodesMap = new Map();
-                allIdsToFetch.forEach((seasonId, index) => {
-                    episodesMap.set(seasonId.toString(), episodesResponses[index]?.episodes || []);
-                });
+                            let dispTitle = initialInfo.id.toString() === m.id.toString() ? initialInfo.title : (m.title?.english || m.title?.romaji || "");
+                            if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
+                                const fmt = m.format === 'TV' ? 'Season' : (m.format || 'Entry');
+                                dispTitle = `${initialInfo.title?.split('Season')[0]?.trim() || 'Anime'} (${fmt})`;
+                            }
 
-                const compiledSeasons: ExtendedAnimeDetails[] = rawMediaNodes.map((m: any) => {
-                    const year = m.startDate?.year || 9999;
-                    const month = m.startDate?.month || 1;
-                    const day = m.startDate?.day || 1;
-                    const sortScore = year * 10000 + month * 100 + day;
-
-                    let dispTitle = initialInfo.id.toString() === m.id.toString() ? initialInfo.title : (m.title?.english || m.title?.romaji || "");
-                    if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
-                        const fmt = m.format === 'TV' ? 'Season' : (m.format || 'Entry');
-                        dispTitle = `${initialInfo.title?.split('Season')[0]?.trim() || 'Anime'} (${fmt})`;
+                            return {
+                                id: m.id.toString(),
+                                title: dispTitle,
+                                image: m.coverImage?.extraLarge || "",
+                                bannerImage: m.bannerImage || m.coverImage?.extraLarge || "",
+                                description: m.description || "No synopsis available.",
+                                genres: m.genres || [],
+                                rating: m.averageScore || "N/A",
+                                status: m.status || "UNKNOWN",
+                                type: m.format || "TV",
+                                releaseDate: m.startDate?.year ? `${m.startDate.year}-${m.startDate.month || 1}-${m.startDate.day || 1}` : "Unknown",
+                                episodes: episodesMap.get(m.id.toString()) || [],
+                                totalEpisodes: m.episodes || 0,
+                                url: `/anime/${m.id}`,
+                                _sortScore: sortScore
+                            };
+                        });
                     }
-
-                    return {
-                        id: m.id.toString(),
-                        title: dispTitle,
-                        image: m.coverImage?.extraLarge || "",
-                        bannerImage: m.bannerImage || m.coverImage?.extraLarge || "",
-                        description: m.description || "No synopsis available.",
-                        genres: m.genres || [],
-                        rating: m.averageScore || "N/A",
-                        status: m.status || "UNKNOWN",
-                        type: m.format || "TV",
-                        releaseDate: m.startDate?.year ? `${m.startDate.year}-${m.startDate.month || 1}-${m.startDate.day || 1}` : "Unknown",
-                        episodes: episodesMap.get(m.id.toString()) || [],
-                        _sortScore: sortScore
-                    };
-                });
-
-                let isolatedSeasons = compiledSeasons;
-                if (isJojoContext) {
-                    isolatedSeasons = compiledSeasons.filter(s => {
-                        if (s.id.toString() === id) return true;
-                        const t = (s.title || '').toLowerCase();
-                        return t.includes('jojo') ||
-                            t.includes('phantom blood') ||
-                            t.includes('stardust') ||
-                            t.includes('diamond is unbreakable') ||
-                            t.includes('golden wind') ||
-                            t.includes('stone ocean') ||
-                            t.includes('steel ball run') ||
-                            t.includes('kishibe rohan');
-                    });
-                } else if (titleLower.includes('attack on titan') || titleLower.includes('shingeki no kyojin')) {
-                    isolatedSeasons = compiledSeasons.filter(s => {
-                        if (s.id.toString() === id) return true;
-                        const t = (s.title || '').toLowerCase();
-                        return t.includes('attack on titan') || t.includes('shingeki no kyojin');
-                    });
-                } else if (titleLower.includes('demon slayer') || titleLower.includes('kimetsu no yaiba')) {
-                    isolatedSeasons = compiledSeasons.filter(s => {
-                        if (s.id.toString() === id) return true;
-                        const t = (s.title || '').toLowerCase();
-                        return t.includes('demon slayer') || t.includes('kimetsu no yaiba');
-                    });
-                } else if (isMhaContext) {
-                    const mhaIds = new Set(['21459', '21856', '100166', '104276', '117193', '139630', '163139', '182896']);
-                    isolatedSeasons = compiledSeasons.filter(s =>
-                        mhaIds.has(s.id.toString()) || (s.title || '').toLowerCase().includes('hero academia')
-                    );
-                } else if (titleLower.includes('wistoria') || titleLower.includes('tsue to tsurugi')) {
-                    isolatedSeasons = compiledSeasons.filter(s => {
-                        if (s.id.toString() === id) return true;
-                        const t = (s.title || '').toLowerCase();
-                        return t.includes('wistoria') || t.includes('tsue to tsurugi');
-                    });
-                } else if (titleLower.includes('mashle')) {
-                    const mashleIds = new Set(['150672', '163132']);
-                    isolatedSeasons = compiledSeasons.filter(s =>
-                        mashleIds.has(s.id.toString()) || (s.title || '').toLowerCase().includes('mashle')
-                    );
-                } else if (
-                    titleLower.includes('one punch') ||
-                    titleLower.includes('one-punch') ||
-                    titleLower.includes('onepunch') ||
-                    titleLower.includes('wan panchi')
-                ) {
-                    const opmIds = new Set(['21087', '97668']);
-                    isolatedSeasons = compiledSeasons.filter(s =>
-                        opmIds.has(s.id.toString()) || s.id.toString() === id
-                    );
+                } catch (sortErr) {
+                    console.warn("Secondary AniList sorting block intercepted by client protections. Engaging primary state initialization.");
                 }
 
+                if (compiledSeasons.length === 0) {
+                    compiledSeasons = [safeBaseSeason];
+                }
+
+                let isolatedSeasons = compiledSeasons;
                 isolatedSeasons.sort((a: any, b: any) => a._sortScore - b._sortScore);
 
-                const ID_OVERRIDES: Record<number, string> = {
-                    14719: 'Season 1',
-                    20474: 'Season 2 Part 1',
-                    20799: 'Season 2 Part 2',
-                    21440: 'Season 3',
-                    36361: 'Season 4',
-                    102883: 'Season 5 Part 1',
-                    127720: 'Season 5 Part 2',
-                    131586: 'Season 6 Part 1',
-                    163262: 'Season 6 Part 2',
-                    16498: 'Season 1',
-                    20958: 'Season 2',
-                    99147: 'Season 3 Part 1',
-                    104578: 'Season 3 Part 2',
-                    110277: 'Season 4 Part 1',
-                    131681: 'Season 4 Part 2',
-                    142856: 'Season 4 Part 3',
-                    101922: 'Season 1',
-                    127230: 'Season 2 Part 1',
-                    121031: 'Season 2 Part 2',
-                    128851: 'Season 3',
-                    142329: 'Season 4',
-                    166240: 'Season 5 Part 1',
-                    171424: 'Season 5 Part 2',
-                    21087: 'Season 1',
-                    97668: 'Season 2',
-                    108465: 'Season 1',
-                    133632: 'Season 2 Part 1',
-                    145139: 'Season 2 Part 2',
-                    79120: 'Season 1',
-                    108632: 'Season 2 Part 1',
-                    116193: 'Season 2 Part 2',
-                    136456: 'Season 3',
-                    101280: 'Season 1',
-                    112707: 'Season 2 Part 1',
-                    118456: 'Season 2 Part 2',
-                    29803: 'Season 1',
-                    98426: 'Season 2',
-                    101347: 'Season 3',
-                    120725: 'Season 4',
-                    20583: 'Season 1',
-                    20954: 'Season 2',
-                    23273: 'Season 3',
-                    99426: 'Season 4 Part 1',
-                    110939: 'Season 4 Part 2',
-                    11757: 'Season 1',
-                    20594: 'Season 2',
-                    21881: 'Season 3 Part 1',
-                    98706: 'Season 3 Part 2',
-                    105749: 'Season 2',
-                    177634: 'Season 3',
-                    269: 'Season 1',
-                    41461: 'Thousand Year Blood War Part 1',
-                    145064: 'Thousand Year Blood War Part 2',
-                    166922: 'Thousand Year Blood War Part 3',
-                    150672: 'Season 1',
-                    163132: 'Season 2',
-                    97940: 'Season 1',
-                    237: 'Season 1',
-                    9760: 'Season 2',
-                    101348: 'Season 1',
-                    136430: 'Season 2',
-                    140960: 'Season 1 Part 1',
-                    148110: 'Season 1 Part 2',
-                    161645: 'Season 2',
-                    130003: 'Season 1',
-                    127526: 'Season 1',
-                    154587: 'Season 1',
-                    153518: 'Season 1',
-                    145439: 'Season 1',
-                    170942: 'Season 2',
-                    21459: 'Season 1',
-                    21856: 'Season 2',
-                    100166: 'Season 3',
-                    104276: 'Season 4',
-                    117193: 'Season 5',
-                    139630: 'Season 6',
-                    163139: 'Season 7',
-                    182896: 'Season 8'
-                };
-
-                isolatedSeasons.forEach(s => {
-                    const numericId = parseInt(s.id.toString());
-                    const fmt = (s.type || '').toUpperCase();
-                    if (['MOVIE', 'OVA', 'MUSIC'].includes(fmt)) return;
-                    if (ID_OVERRIDES[numericId] !== undefined) {
-                        s._shortLabel = ID_OVERRIDES[numericId];
-                        s._franchiseOverride = true;
-                        s.type = 'TV';
-                    }
-                });
-
-                const mainline: ExtendedAnimeDetails[] = [];
-                const extras: ExtendedAnimeDetails[] = [];
-
-                isolatedSeasons.forEach(s => {
-                    const fmt = (s.type || '').toUpperCase();
-                    if (fmt === 'MOVIE') { s._shortLabel = 'Movie'; extras.push(s); }
-                    else if (['OVA', 'SPECIAL', 'ONA', 'MUSIC'].includes(fmt)) {
-                        s._shortLabel = fmt === 'OVA' ? 'OVA' : fmt === 'ONA' ? 'ONA' : 'Special';
-                        extras.push(s);
-                    } else {
-                        mainline.push(s);
-                    }
-                });
-
-                mainline.sort((a: any, b: any) => a._sortScore - b._sortScore);
-
                 let rollingSeasonNumber = 1;
-                mainline.forEach((s) => {
-                    if (s._franchiseOverride && s._shortLabel) {
-                        const extractedNumMatch = s._shortLabel.match(/Season\s*(\d+)/i);
-                        if (extractedNumMatch) {
-                            rollingSeasonNumber = parseInt(extractedNumMatch[1], 10) + 1;
-                        }
-                    } else {
-                        s._shortLabel = `Season ${rollingSeasonNumber}`;
-                        rollingSeasonNumber++;
-                    }
+                isolatedSeasons.forEach((s) => {
+                    s._shortLabel = `Season ${rollingSeasonNumber}`;
+                    rollingSeasonNumber++;
                 });
 
-                extras.sort((a: any, b: any) => a._sortScore - b._sortScore);
-                const allMainline = mainline;
-
-                const combined = [...allMainline, ...extras];
-                let pruned = combined.filter(s => {
+                const finalOrdered = isolatedSeasons.filter(s => {
                     if (s.id.toString() === id) return true;
                     return (s.episodes || []).length > 0;
                 });
 
-                if (pruned.length === 0) pruned = combined;
-
-                const finalOrdered = pruned;
-
                 if (cancelRef.cancelled) return;
-                setChronologicalSeasons(finalOrdered);
+                setChronologicalSeasons(finalOrdered.length > 0 ? finalOrdered : isolatedSeasons);
                 setLoading(false);
 
                 if (cancelRef.cancelled) return;
@@ -531,26 +358,17 @@ export default function AnimeDetails() {
                 const epFromUrl = queryParams.get('ep');
 
                 if (epFromUrl) {
-                    for (const s of isolatedSeasons) {
-                        const found = (s.episodes || []).find(e => e.id.toString() === epFromUrl.toString());
-                        if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
-                    }
-                }
+                    const extractedNumMatch = epFromUrl.match(/\d+$/);
+                    const targetNum = extractedNumMatch ? extractedNumMatch[0] : epFromUrl;
 
-                if (!targetEpToPlay) {
-                    const { data: sessionData } = await supabase.auth.getSession();
-                    if (cancelRef.cancelled) return;
-                    const currentUser = sessionData?.session?.user;
-                    if (currentUser) {
-                        const { data } = await supabase.from('watch_history').select('episode_id, anime_id').eq('user_id', currentUser.id).eq('anime_id', id.toString()).maybeSingle();
-                        if (cancelRef.cancelled) return;
-                        if (data && data.episode_id) {
-                            const foundSeason = isolatedSeasons.find(s => s.id.toString() === data.anime_id?.toString()) || isolatedSeasons.find(s => s.id.toString() === id);
-                            if (foundSeason) {
-                                const foundEp = (foundSeason.episodes || []).find(e => e.id.toString() === data.episode_id?.toString());
-                                if (foundEp) { targetEpToPlay = foundEp; seasonContextId = foundSeason.id; }
-                            }
-                        }
+                    for (const s of isolatedSeasons) {
+                        const found = (s.episodes || []).find(e =>
+                            e.id.toString() === epFromUrl.toString() ||
+                            e.number.toString() === epFromUrl.toString() ||
+                            e.number.toString() === targetNum ||
+                            epFromUrl.toString().endsWith(`-${e.number}`)
+                        );
+                        if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
                     }
                 }
 
@@ -613,12 +431,14 @@ export default function AnimeDetails() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, variables: { id: parseInt(id) } })
                 });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status} - Rate Limited`);
+
                 const data = await res.json();
                 const nodes = data?.data?.Media?.recommendations?.nodes || [];
                 const recs = nodes.map((n: any) => n.mediaRecommendation).filter((r: any) => r && r.id.toString() !== id);
                 setRecommendations(recs);
             } catch (e) {
-                console.error('Failed to fetch recommendations:', e);
                 setRecommendations([]);
             } finally {
                 setRecommendationsLoading(false);
@@ -655,6 +475,34 @@ export default function AnimeDetails() {
         }
     }, [malId, primarySeason, activeEpisode]);
 
+    const loadSpecificSource = (source: any) => {
+        const finalUrl = source.url.includes('?') ? `${source.url}&cb=${Date.now()}` : `${source.url}?cb=${Date.now()}`;
+        setStreamData({
+            url: finalUrl,
+            isIframe: source.isIframe || false,
+            isM3U8: source.isM3U8 === true || source.url.includes('.m3u8')
+        });
+    };
+
+    const triggerFallback = () => {
+        setCurrentSourceIndex((prev) => {
+            const next = prev + 1;
+            if (next < availableSources.length) {
+                console.warn(`[PLAYER] Falling back to next provider stream (Source ${next + 1} of ${availableSources.length})...`);
+                loadSpecificSource(availableSources[next]);
+                return next;
+            } else {
+                console.error("[PLAYER] All fallback sources exhausted.");
+                setStreamError("All available stream providers failed to load. The episode might be broken or region-locked.");
+                setStreamData(null);
+                return prev;
+            }
+        });
+    };
+
+    const fallbackRef = useRef(triggerFallback);
+    useEffect(() => { fallbackRef.current = triggerFallback; }, [triggerFallback, availableSources]);
+
     const handlePlayEpisode = async (episode: Episode, parentSeasonId: string, forceMode?: 'sub' | 'dub') => {
         const modeToUse = forceMode || audioMode;
         setActiveEpisode(episode);
@@ -664,6 +512,8 @@ export default function AnimeDetails() {
         setStreamError(null);
         setShowSettings(false);
         setSkipTimes({ op: null, ed: null });
+        setAvailableSources([]);
+        setCurrentSourceIndex(0);
         lastSavedTimeRef.current = 0;
 
         if (hlsInstance) {
@@ -690,15 +540,18 @@ export default function AnimeDetails() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+            let currentKnownMal = malId;
+            if (!currentKnownMal && animeFetchResult?.idMal) currentKnownMal = animeFetchResult.idMal;
+            const resolvedTargetMal = currentKnownMal?.toString() || '';
 
-            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}`;
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}`;
 
             const res = await fetch(backendUrl);
             const data = await res.json();
 
-            if (data.error) {
-                setStreamError(data.error);
+            if (data.error || !data.sources || data.sources.length === 0) {
+                setStreamError(data.error || "This media segment is undergoing background synchronization. Please try another episode.");
                 setIsFetchingStream(false);
                 return;
             }
@@ -711,19 +564,21 @@ export default function AnimeDetails() {
             }
 
             const sourcesArray = data.sources || [];
-            if (sourcesArray && sourcesArray.length > 0) {
-                const bestLink = sourcesArray.find((l: any) => l.quality === 'auto') || sourcesArray[0];
-                setStreamData({
-                    url: bestLink.url,
-                    isIframe: bestLink.isIframe || false,
-                    isM3U8: bestLink.isM3U8 === true || bestLink.url.includes('.m3u8')
+            if (sourcesArray.length > 0) {
+                const sortedSources = [...sourcesArray].sort((a, b) => {
+                    if (!a.isIframe && b.isIframe) return -1;
+                    if (a.isIframe && !b.isIframe) return 1;
+                    return 0;
                 });
+
+                setAvailableSources(sortedSources);
+                setCurrentSourceIndex(0);
+                loadSpecificSource(sortedSources[0]);
             } else {
-                setStreamError("Stream not found! This episode might be unreleased or currently unavailable on this server.");
+                setStreamError("Stream data array un-routable.");
             }
         } catch (error) {
-            console.error("Failed to fetch stream");
-            setStreamError("Failed to connect to the streaming server.");
+            setStreamError("Remote connection dropped. Try refreshing the page.");
         }
         finally { setIsFetchingStream(false); }
     };
@@ -760,29 +615,6 @@ export default function AnimeDetails() {
         }
     };
 
-    const handleNextEpisode = () => {
-        if (!playingSeasonId || !activeEpisode) return;
-        const currentActiveSeasonObj = chronologicalSeasons.find(s => s.id === playingSeasonId);
-        if (!currentActiveSeasonObj || !currentActiveSeasonObj.episodes) return;
-
-        const currentEpList = currentActiveSeasonObj.episodes;
-        const currentIndex = currentEpList.findIndex(ep => ep.id === activeEpisode.id);
-
-        if (currentIndex !== -1 && currentIndex < currentEpList.length - 1) {
-            const nextEp = currentEpList[currentIndex + 1];
-            handlePlayEpisode(nextEp, playingSeasonId);
-        }
-        else if (currentIndex === currentEpList.length - 1) {
-            const currentSeasonIndex = chronologicalSeasons.findIndex(s => s.id === playingSeasonId);
-            if (currentSeasonIndex !== -1 && currentSeasonIndex < chronologicalSeasons.length - 1) {
-                const nextSeasonObj = chronologicalSeasons[currentSeasonIndex + 1];
-                if (nextSeasonObj && nextSeasonObj.episodes && nextSeasonObj.episodes.length > 0) {
-                    handlePlayEpisode(nextSeasonObj.episodes[0], nextSeasonObj.id);
-                }
-            }
-        }
-    };
-
     useEffect(() => {
         if (!streamData || !videoRef.current || streamData.isIframe) return;
         const video = videoRef.current;
@@ -804,28 +636,72 @@ export default function AnimeDetails() {
         };
 
         if (streamData.isM3U8 && Hls.isSupported()) {
-            hls = new Hls({ xhrSetup: (xhr) => { xhr.withCredentials = false; } });
-            hls.loadSource(streamData.url);
+            hls = new Hls({
+                xhrSetup: (xhr) => { xhr.withCredentials = false; },
+                fragLoadingTimeOut: 30000,
+                manifestLoadingTimeOut: 20000,
+                levelLoadingTimeOut: 20000,
+                fragLoadingMaxRetry: 6,
+                manifestLoadingMaxRetry: 4,
+                manifestLoadingRetryDelay: 500
+            });
+
             hls.attachMedia(video);
+
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hls!.loadSource(streamData.url);
+            });
 
             hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
                 const availableQualities = data.levels.map((level, index) => ({ height: level.height, level: index }));
                 setQualities(availableQualities.reverse());
                 restoreProgress();
-                if (autoPlay) {
-                    video.play().catch(() => console.warn("Autoplay prevented"));
+                video.play().catch(e => console.warn("Autoplay prevented:", e));
+            });
+
+            hls.on(Hls.Events.ERROR, (_, data) => {
+                if (data.fatal) {
+                    console.warn(`[HLS] Fatal Error Type: ${data.type} | Details: ${data.details}`);
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.error('[HLS] Network error fatal drop. Executing fallback...');
+                            hls!.destroy();
+                            fallbackRef.current();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            if (data.details === 'bufferAddCodecError' || data.details === 'bufferAppendError') {
+                                console.error('[HLS] Unrecoverable codec crash. Executing fallback to safe Embed source...');
+                                hls!.destroy();
+                                fallbackRef.current();
+                            } else {
+                                console.warn('[HLS] Recovering media error...');
+                                hls!.recoverMediaError();
+                            }
+                            break;
+                        default:
+                            console.error('[HLS] Unknown fatal drop. Executing fallback...');
+                            hls!.destroy();
+                            fallbackRef.current();
+                            break;
+                    }
                 }
             });
 
             setHlsInstance(hls);
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = streamData.url;
+            video.addEventListener('loadedmetadata', () => {
+                restoreProgress();
+                video.play().catch(e => console.warn("Autoplay prevented:", e));
+            }, { once: true });
+            video.addEventListener('error', () => { fallbackRef.current(); }, { once: true });
         } else {
             video.src = streamData.url;
             video.addEventListener('loadedmetadata', () => {
                 restoreProgress();
-                if (autoPlay) {
-                    video.play().catch(() => console.warn("Autoplay prevented"));
-                }
+                video.play().catch(() => console.warn("Autoplay prevented"));
             }, { once: true });
+            video.addEventListener('error', () => { fallbackRef.current(); }, { once: true });
         }
 
         return () => {
@@ -839,7 +715,7 @@ export default function AnimeDetails() {
                 video.load();
             }
         };
-    }, [streamData, playingSeasonId, activeEpisode?.id, autoPlay]);
+    }, [streamData, playingSeasonId, activeEpisode?.id]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -905,28 +781,6 @@ export default function AnimeDetails() {
 
         const onTimeUpdate = () => {
             setCurrentTime(video.currentTime);
-
-            const { autoSkip: currentAutoSkip, autoNext: currentAutoNext, skipTimes: currentSkips } = bingeSettingsRef.current;
-
-            if (currentAutoSkip && currentSkips.op) {
-                if (video.currentTime >= currentSkips.op.start && video.currentTime < currentSkips.op.end - 0.8) {
-                    const exactTarget = currentSkips.op.end + SKIP_OFFSET;
-                    video.currentTime = exactTarget;
-                    setCurrentTime(exactTarget);
-                }
-            }
-
-            if (currentAutoSkip && currentSkips.ed) {
-                if (video.currentTime >= currentSkips.ed.start && video.currentTime < currentSkips.ed.end - 0.8) {
-                    const exactTarget = currentSkips.ed.end;
-                    video.currentTime = exactTarget;
-                    setCurrentTime(exactTarget);
-                }
-            }
-
-            if (currentAutoNext && video.duration > 0 && (video.duration - video.currentTime) <= 1.5) {
-                handleNextEpisode();
-            }
 
             if (video.currentTime > 5 && video.duration > 0) {
                 if (video.duration - video.currentTime < 30) {
@@ -1104,7 +958,6 @@ export default function AnimeDetails() {
                 <div className="flex flex-col xl:flex-row gap-5 items-start">
                     <div className="flex-1 min-w-0 w-full">
 
-                        {/* 1. THE MEDIA PLAYER (STAYS AT THE TOP) */}
                         <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111] mb-6">
                             <div
                                 ref={playerContainerRef}
@@ -1128,7 +981,12 @@ export default function AnimeDetails() {
                                 ) : streamData ? (
                                     <div className="w-full h-full relative">
                                         {streamData.isIframe ? (
-                                            <iframe src={streamData.url} className="w-full h-full border-none bg-black" allowFullScreen />
+                                            <iframe
+                                                src={streamData.url}
+                                                className="w-full h-full border-none bg-black"
+                                                allow="autoplay; encrypted-media; fullscreen"
+                                                allowFullScreen
+                                            />
                                         ) : (
                                             <>
                                                 <video
@@ -1294,32 +1152,6 @@ export default function AnimeDetails() {
                                     <p className="text-sm text-gray-400">
                                         Watching <span className="text-blue-400 font-bold">{currentPlayingSeasonObj?.title}</span> <span className="text-white font-black ml-1">Episode {activeEpisode?.number || 1}</span>
                                     </p>
-
-                                    <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 mt-2.5 bg-[#0a0a0a] border border-[#1a1a1a] px-3 py-1.5 rounded-lg w-fit mx-auto lg:mx-0">
-                                        <button
-                                            onClick={() => toggleSetting('kuro-auto-play', autoPlay, setAutoPlay)}
-                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoPlay ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full ${autoPlay ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
-                                            AutoPlay
-                                        </button>
-                                        <span className="text-[#222]">|</span>
-                                        <button
-                                            onClick={() => toggleSetting('kuro-auto-skip', autoSkip, setAutoSkip)}
-                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoSkip ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full ${autoSkip ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
-                                            AutoSkip Intro/Outro
-                                        </button>
-                                        <span className="text-[#222]">|</span>
-                                        <button
-                                            onClick={() => toggleSetting('kuro-auto-next', autoNext, setAutoNext)}
-                                            className={`text-[10px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer ${autoNext ? 'text-blue-500' : 'text-gray-600 hover:text-gray-400'}`}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full ${autoNext ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : 'bg-gray-700'}`}></span>
-                                            AutoNext Ep
-                                        </button>
-                                    </div>
                                 </div>
 
                                 <div className="flex flex-col items-end gap-3 mt-2 lg:mt-0">
@@ -1348,7 +1180,6 @@ export default function AnimeDetails() {
                             </div>
                         </div>
 
-                        {/* 2. REORDERED PRIORITY: THE EPISODES GRID IS PLACED DIRECTLY UNDER THE PLAYER */}
                         {chronologicalSeasons.map((seasonObj) => {
                             const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
                             if (!isCurrentlyPlayingThisSeason) return null;
@@ -1405,7 +1236,6 @@ export default function AnimeDetails() {
                             );
                         })}
 
-                        {/* 3. RELATED SEASONS & MEDIA (FOLLOWS EPISODES) */}
                         {animeFetchResult?.relations && animeFetchResult.relations.length > 0 && (
                             <div className="mb-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
                                 <div className="flex items-center gap-4 mb-4">
@@ -1445,7 +1275,6 @@ export default function AnimeDetails() {
                             </div>
                         )}
 
-                        {/* 4. THE DETAILS CARD (PLACED AT THE VERY BOTTOM) */}
                         <div className="flex flex-col gap-8">
                             {chronologicalSeasons.map((seasonObj) => {
                                 const isCurrentlyPlayingThisSeason = playingSeasonId === seasonObj.id;
@@ -1503,7 +1332,6 @@ export default function AnimeDetails() {
 
                     </div>
 
-                    {/* RECOMMENDATIONS SIDEBAR */}
                     <div className="w-full xl:w-[360px] flex-shrink-0">
                         <div className="sticky top-24 bg-[#050505] rounded-xl border border-[#111] overflow-hidden">
                             <div className="px-4 py-3 border-b border-[#111] flex items-center justify-between">

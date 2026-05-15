@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HeroBanner from '../components/HeroBanner';
 import TrendingSidebar from '../components/TrendingSidebar';
-import { consumetApi, type AnimeResult } from '../services/consumet';
+import { type AnimeResult } from '../services/consumet';
 import { supabase } from '../lib/supabase';
 import { Play, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -48,7 +48,7 @@ export default function Home() {
         const loadData = async () => {
             setLoading(true);
             try {
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3005';
+                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
 
                 const [trendingRes, recentRes] = await Promise.all([
                     fetch(`${apiUrl}/anime/zoro/top-airing`).catch(() => null),
@@ -119,7 +119,7 @@ export default function Home() {
 
     return (
         <main className="w-full flex flex-col">
-            <section className="relative w-full min-h-[500px] md:h-[520px]">
+            <section className="relative w-full h-[480px] xl:h-[500px]">
                 {loading ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-[#040404] z-50">
                         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -142,7 +142,7 @@ export default function Home() {
                 <section className="flex-1 overflow-hidden">
 
                     {history.length > 0 && (
-                        <div className="mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <div className="mb-12 pt-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
                             <div className="flex items-center justify-between mb-6">
                                 <h2 className="text-[22px] font-black uppercase tracking-tighter italic">Continue Watching</h2>
                                 <div className="flex items-center gap-2">
@@ -161,24 +161,14 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            <div id="continue-scroll" className="flex gap-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                            <div id="continue-scroll" className="flex gap-4 overflow-x-auto py-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                                 {history.map((item) => {
                                     const progressPercent = item.duration > 0 ? (item.progress / item.duration) * 100 : 0;
-                                    const targetUrl = `/anime/${item.anime_id}?ep=${item.episode_id}`;
-
                                     return (
-                                        <a
+                                        <div
                                             key={`history-${item.anime_id}`}
-                                            href={targetUrl}
-                                            onClick={(e) => {
-                                                // Let the browser handle Ctrl+Click, Cmd+Click, or Middle-Click natively
-                                                if (e.ctrlKey || e.metaKey || e.button === 1) return;
-
-                                                // Intercept standard left-clicks for lightning-fast router navigation
-                                                e.preventDefault();
-                                                navigate(targetUrl);
-                                            }}
-                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3 block"
+                                            onClick={() => navigate(`/anime/${item.anime_id}?ep=${item.episode_id}`)}
+                                            className="group relative w-[260px] md:w-[300px] shrink-0 cursor-pointer flex flex-col gap-3"
                                         >
                                             <div className="w-full aspect-video rounded-xl overflow-hidden bg-[#0a0a0a] border border-[#222] group-hover:border-blue-500/50 transition-all duration-300 shadow-lg relative">
                                                 <img
@@ -217,15 +207,14 @@ export default function Home() {
                                             <h3 className="text-sm font-bold text-gray-200 line-clamp-1 group-hover:text-blue-400 transition-colors px-1">
                                                 {item.anime_title}
                                             </h3>
-                                        </a>
+                                        </div>
                                     );
                                 })}
                             </div>
                         </div>
                     )}
 
-                    {/* ⚡ SPACING FIX: Bumped padding to pt-8 mt-6 to guarantee cards never peek out or overlap adjacent content */}
-                    <div className="flex items-center justify-between mb-8 pt-8 mt-6 border-t border-white/5">
+                    <div className="flex items-center justify-between mb-8 pt-12 mt-8 border-t border-white/5">
                         <div className="flex items-center gap-4">
                             <h2 className="text-[22px] font-black uppercase tracking-tighter italic">Latest Updates</h2>
                             <div className="h-1 w-16 bg-blue-600 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)] mt-1" />
@@ -238,44 +227,33 @@ export default function Home() {
                                 <div key={i} className="aspect-[2/3] bg-white/5 rounded-[20px] animate-pulse" />
                             ))
                         ) : (
-                            schedule.slice(0, 20).map((anime, index) => {
-                                const targetUrl = `/anime/${anime.id}`;
-
-                                return (
-                                    <a
-                                        key={`latest-${anime.id}-${index}`}
-                                        href={targetUrl}
-                                        onClick={(e) => {
-                                            // Let the browser handle Ctrl+Click, Cmd+Click, or Middle-Click natively
-                                            if (e.ctrlKey || e.metaKey || e.button === 1) return;
-
-                                            // Intercept standard left-clicks for lightning-fast router navigation
-                                            e.preventDefault();
-                                            navigate(targetUrl);
-                                        }}
-                                        className="group cursor-pointer block"
-                                    >
-                                        <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
-                                            <img
-                                                src={anime.image}
-                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                                                alt={anime.title}
-                                            />
-                                            <div className="absolute top-3 right-3 bg-blue-600 text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
-                                                EP {(anime as any).episode || "1"}
-                                            </div>
-                                            <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-[9px] font-black px-2 py-1 rounded-md uppercase border border-white/10 z-20">
-                                                {anime.subOrDub || "SUB"}
-                                            </div>
+                            schedule.slice(0, 20).map((anime, index) => (
+                                <div
+                                    key={`latest-${anime.id}-${index}`}
+                                    // 🔥 THE FIX: Now passes the exact episode number to the URL!
+                                    onClick={() => navigate(`/anime/${anime.id}?ep=${(anime as any).episode || 1}`)}
+                                    className="group cursor-pointer block"
+                                >
+                                    <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
+                                        <img
+                                            src={anime.image}
+                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                                            alt={anime.title}
+                                        />
+                                        <div className="absolute top-3 right-3 bg-blue-600 text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
+                                            EP {(anime as any).episode || "1"}
                                         </div>
+                                        <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-[9px] font-black px-2 py-1 rounded-md uppercase border border-white/10 z-20">
+                                            {anime.subOrDub || "SUB"}
+                                        </div>
+                                    </div>
 
-                                        <h4 className="font-bold text-[14px] truncate text-gray-300 group-hover:text-blue-400 transition-all duration-300 px-1">
-                                            {anime.title}
-                                        </h4>
-                                        <p className="text-[10px] text-gray-600 font-bold mt-1 uppercase tracking-widest px-1">TV Series</p>
-                                    </a>
-                                );
-                            })
+                                    <h4 className="font-bold text-[14px] truncate text-gray-300 group-hover:text-blue-400 transition-all duration-300 px-1">
+                                        {anime.title}
+                                    </h4>
+                                    <p className="text-[10px] text-gray-600 font-bold mt-1 uppercase tracking-widest px-1">TV Series</p>
+                                </div>
+                            ))
                         )}
                     </div>
                 </section>
