@@ -164,7 +164,6 @@ export default function Home() {
                                 {history.map((item) => {
                                     const progressPercent = item.duration > 0 ? (item.progress / item.duration) * 100 : 0;
                                     return (
-                                        // 🔥 CHANGED TO <Link>
                                         <Link
                                             key={`history-${item.anime_id}`}
                                             to={`/anime/${item.anime_id}?ep=${item.episode_id}`}
@@ -228,10 +227,10 @@ export default function Home() {
                             ))
                         ) : (
                             schedule.slice(0, 20).map((anime, index) => (
-                                // 🔥 CHANGED TO <Link>
+                                // ⚡ FIX: Prioritize episodeId (if the API has it) over just the number
                                 <Link
                                     key={`latest-${anime.id}-${index}`}
-                                    to={`/anime/${anime.id}?ep=${(anime as any).episode || 1}`}
+                                    to={`/anime/${anime.id}?ep=${(anime as any).episodeId || (anime as any).episode || 1}`}
                                     className="group cursor-pointer block"
                                 >
                                     <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">

@@ -72,7 +72,6 @@ export default function AnimeDetails() {
     const [isFetchingStream, setIsFetchingStream] = useState(false);
     const [streamError, setStreamError] = useState<string | null>(null);
 
-    // 🔥 DYNAMIC LOADING STATE
     const [loadingPhase, setLoadingPhase] = useState(0);
 
     const [audioMode, setAudioMode] = useState<'sub' | 'dub'>(
@@ -356,14 +355,32 @@ export default function AnimeDetails() {
                     const extractedNumMatch = epFromUrl.match(/\d+$/);
                     const targetNum = extractedNumMatch ? extractedNumMatch[0] : epFromUrl;
 
-                    for (const s of isolatedSeasons) {
-                        const found = (s.episodes || []).find(e =>
+                    // ⚡ FIX: 1. PRIORITIZE THE REQUESTED SEASON FROM THE URL FIRST
+                    const requestedSeason = isolatedSeasons.find(s => s.id.toString() === id);
+                    if (requestedSeason) {
+                        const foundInRequested = (requestedSeason.episodes || []).find(e =>
                             e.id.toString() === epFromUrl.toString() ||
                             e.number.toString() === epFromUrl.toString() ||
                             e.number.toString() === targetNum ||
                             epFromUrl.toString().endsWith(`-${e.number}`)
                         );
-                        if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
+                        if (foundInRequested) {
+                            targetEpToPlay = foundInRequested;
+                            seasonContextId = requestedSeason.id;
+                        }
+                    }
+
+                    // ⚡ FIX: 2. FALLBACK: If not found in the exact requested season, then check chronological seasons
+                    if (!targetEpToPlay) {
+                        for (const s of isolatedSeasons) {
+                            const found = (s.episodes || []).find(e =>
+                                e.id.toString() === epFromUrl.toString() ||
+                                e.number.toString() === epFromUrl.toString() ||
+                                e.number.toString() === targetNum ||
+                                epFromUrl.toString().endsWith(`-${e.number}`)
+                            );
+                            if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
+                        }
                     }
                 }
 
@@ -494,7 +511,6 @@ export default function AnimeDetails() {
     const fallbackRef = useRef(triggerFallback);
     useEffect(() => { fallbackRef.current = triggerFallback; }, [triggerFallback]);
 
-    // 🔥 DYNAMIC LOADING TEXT CYCLER
     useEffect(() => {
         let interval: number;
         if (isFetchingStream) {
