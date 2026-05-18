@@ -129,7 +129,9 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/anime/zoro/top-airing', async (req, res) => {
-  if (CACHE.trending) return res.json({ results: CACHE.trending });
+  const cacheKey = 'top-airing';
+  if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
+  
   try {
     const query = `
       query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
@@ -142,13 +144,16 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
       image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '',
       rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
-    CACHE.trending = formatted;
+    
+    setCache(cacheKey, formatted, 2); // Cache trending for 2 hours
     return res.json({ results: formatted });
-  } catch { return res.json({ results: CACHE.trending || [] }); }
+  } catch { return res.json({ results: [] }); }
 });
 
 app.get('/anime/zoro/recent-episodes', async (req, res) => {
-  if (CACHE.recent) return res.json({ results: CACHE.recent });
+  const cacheKey = 'recent-episodes';
+  if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
+
   try {
     const query = `
       query { Page(page: 1, perPage: 30) { airingSchedules(notYetAired: false, sort: TIME_DESC) { 
@@ -160,11 +165,14 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
       title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
+    
     const unique = []; const seen = new Set();
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
-    CACHE.recent = unique.slice(0, 20);
-    return res.json({ results: CACHE.recent });
-  } catch { return res.json({ results: CACHE.recent || [] }); }
+    
+    const finalData = unique.slice(0, 20);
+    setCache(cacheKey, finalData, 0.5); // 🔥 Cache recent for only 30 minutes!
+    return res.json({ results: finalData });
+  } catch { return res.json({ results: [] }); }
 });
 
 app.get('/anime/zoro/info/:id', async (req, res) => {

@@ -91,27 +91,7 @@ export default function Navbar() {
       setShowDropdown(true);
 
       try {
-        const jikanRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchQuery.trim())}&limit=5`);
-        const jikanData = await jikanRes.json();
-
-        if (jikanData?.data && jikanData.data.length > 0) {
-          const mappedResults = jikanData.data.map((anime: any) => ({
-            id: anime.mal_id,
-            title: {
-              english: anime.title_english || anime.title,
-              romaji: anime.title_japanese || anime.title
-            },
-            coverImage: {
-              extraLarge: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url
-            },
-            type: anime.type?.toUpperCase() || 'TV',
-            averageScore: anime.score ? anime.score * 10 : 0
-          }));
-
-          setLiveResults(mappedResults);
-          return;
-        }
-
+        // 🔥 REMOVED JIKAN API. Using strictly Anilist to prevent MAL ID routing crashes.
         const gqlQuery = `
         query ($search: String) {
           Page(page: 1, perPage: 5) {
@@ -129,12 +109,24 @@ export default function Navbar() {
         });
 
         const alData = await alResponse.json();
-        if (alData.data?.Page?.media) {
-          setLiveResults(alData.data.Page.media);
+        if (alData.data?.Page?.media && alData.data.Page.media.length > 0) {
+            const mappedResults = alData.data.Page.media.map((anime: any) => ({
+                id: anime.id,
+                title: {
+                    english: anime.title.english || anime.title.romaji,
+                    romaji: anime.title.romaji
+                },
+                coverImage: { extraLarge: anime.coverImage.extraLarge },
+                type: anime.type || 'TV',
+                averageScore: anime.averageScore || 0
+            }));
+            setLiveResults(mappedResults);
+        } else {
+            setLiveResults([]);
         }
-
       } catch (error) {
         console.error("Live search failed:", error);
+        setLiveResults([]);
       } finally {
         setIsSearching(false);
       }

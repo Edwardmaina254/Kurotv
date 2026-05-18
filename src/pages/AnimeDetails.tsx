@@ -778,7 +778,8 @@ export default function AnimeDetails() {
         const onTimeUpdate = () => {
             setCurrentTime(video.currentTime);
 
-            if (video.currentTime > 5 && video.duration > 0) {
+            // 🔥 Dropped threshold from 5s to 2s
+            if (video.currentTime > 2 && video.duration > 0) {
                 if (video.duration - video.currentTime < 30) {
                     localStorage.setItem(watchedKey, 'true');
                     localStorage.removeItem(progressKey);
@@ -790,7 +791,8 @@ export default function AnimeDetails() {
                 } else {
                     localStorage.setItem(progressKey, video.currentTime.toString());
 
-                    if (user && Math.abs(video.currentTime - lastSavedTimeRef.current) > 10) {
+                    // 🔥 Dropped threshold from 10s difference to 4s difference
+                    if (user && Math.abs(video.currentTime - lastSavedTimeRef.current) > 4) {
                         lastSavedTimeRef.current = video.currentTime;
                         supabase.from('watch_history').upsert({
                             user_id: user.id,
