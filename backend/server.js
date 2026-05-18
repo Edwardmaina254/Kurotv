@@ -6,10 +6,14 @@ import rateLimit from 'express-rate-limit';
 import { createRequire } from 'module';
 import { createClient } from '@supabase/supabase-js';
 import { Readable } from 'stream';
+import http from 'http';
+import https from 'https';
 import 'dotenv/config';
 
-// 🔥 GLOBAL TLS OVERRIDE
+// 🔥 GLOBAL TLS OVERRIDE & PERFORMANCE AGENTS
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100 });
 
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
@@ -54,7 +58,6 @@ const corsOptions = {
   credentials: true
 };
 app.use(cors(corsOptions));
-
 app.set('trust proxy', 1);
 
 const limiter = rateLimit({
@@ -69,7 +72,7 @@ app.use('/anime/', limiter);
 const anilist = new META.Anilist();
 const ANILIST_API = 'https://graphql.anilist.co';
 
-console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online! (Security: HIGH)");
+console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online!");
 
 // ==========================================
 // 🛑 AGGRESSIVE CACHING SYSTEMS
@@ -95,7 +98,7 @@ const timeoutPromise = (promise, ms) => {
 };
 
 const fetchWithBackoff = async (url, options, maxRetries = 2) => {
-  const finalOptions = { ...options };
+  const finalOptions = { ...options, agent: url.startsWith('https') ? httpsAgent : httpAgent };
   finalOptions.headers = {
     ...finalOptions.headers,
     'User-Agent': 'KuroTV/1.0 (Performance Gateway)',
@@ -104,7 +107,8 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
 
   for (let i = 0; i < maxRetries; i++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    // ⚡ FIX: Dropped Anilist API fetch timeouts to 5 seconds
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch(url, { ...finalOptions, signal: controller.signal });
       clearTimeout(timeout);
@@ -163,32 +167,6 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
   } catch { return res.json({ results: CACHE.recent || [] }); }
 });
 
-app.get('/anime/zoro/schedule', async (req, res) => {
-  if (CACHE.schedule) return res.json({ results: CACHE.schedule });
-  try {
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    const startUnix = Math.floor(startOfWeek.getTime() / 1000);
-    const endUnix = startUnix + (7 * 24 * 60 * 60);
-    const query = `
-      query ($start: Int, $end: Int) { Page(page: 1, perPage: 150) { airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { 
-        airingAt episode media { id title { english romaji } coverImage { extraLarge } type } 
-      } } }`;
-    const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { start: startUnix, end: endUnix } }) });
-    const json = await response.json();
-    const formatted = (json?.data?.Page?.airingSchedules || []).map(item => ({
-      id: item?.media?.id?.toString() || '', episode: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
-      image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV", airingAt: item?.airingAt || 0
-    })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
-    const unique = []; const seen = new Set();
-    for (const anime of formatted) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
-    CACHE.schedule = unique;
-    return res.json({ results: CACHE.schedule });
-  } catch { return res.json({ results: CACHE.schedule || [] }); }
-});
-
 app.get('/anime/zoro/info/:id', async (req, res) => {
   const id = req.params.id;
   const cacheKey = `info-${id}`;
@@ -241,7 +219,8 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   } catch { }
 
   try {
-    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
+    // ⚡ FIX: Dropped episode info fetch to 3 seconds
+    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 3000);
     if (consumetInfo?.episodes?.length > 0) {
       const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number))).sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
       setCache(cacheKey, { episodes: sanitized });
@@ -295,7 +274,7 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
     const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" };
 
-    const fetchRes = await fetch(targetUrl, { headers });
+    const fetchRes = await fetch(targetUrl, { headers, agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent });
     if (!fetchRes.ok) return res.status(502).send("Proxy Stream Error");
 
     let manifestText = await fetchRes.text();
@@ -321,7 +300,7 @@ app.get('/proxy/stream', async (req, res) => {
     const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*", "Accept-Encoding": "identity" };
     if (req.headers.range) headers.Range = req.headers.range;
 
-    const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow' });
+    const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow', agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent });
     if (!fetchRes.ok) return res.status(502).send();
 
     let upstreamType = (fetchRes.headers.get('content-type') || 'video/mp2t').toLowerCase();
@@ -390,29 +369,29 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
+  // ⚡ THE TRAP: If this is undefined on Railway, it hangs for 20s trying to reach itself!
   const MIRURO_API_BASE = process.env.EXTRACTOR_API_URL ? process.env.EXTRACTOR_API_URL.replace(/\/+$/, '') : 'http://127.0.0.1:8000';
 
   try {
-    // 🔥 THE SPEED FIX: Aggressive Caching for the Episode Map Request
     const epListCacheKey = `miruro-eplist-${requestedAnimeId}`;
     let epListData = getCache(epListCacheKey);
 
     if (!epListData) {
-      console.log(`[WATCH] Requesting episode mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
+      console.log(`[WATCH] Requesting mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
       const epListController = new AbortController();
-      const epListTimeout = setTimeout(() => epListController.abort(), 20000);
+      // ⚡ FIX: Slashed from 20000ms to 4000ms (Fail-Fast)
+      const epListTimeout = setTimeout(() => epListController.abort(), 4000);
       const epListRes = await fetch(`${MIRURO_API_BASE}/episodes/${requestedAnimeId}`, {
         headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
-        signal: epListController.signal
+        signal: epListController.signal,
+        agent: MIRURO_API_BASE.startsWith('https') ? httpsAgent : httpAgent
       });
       clearTimeout(epListTimeout);
 
       if (epListRes.ok) {
         epListData = await epListRes.json();
-        setCache(epListCacheKey, epListData, 12); // 🔥 Saves mapping to memory for 12 hours
+        setCache(epListCacheKey, epListData, 12);
       }
-    } else {
-      console.log(`[WATCH] Loading episode mappings from internal memory cache for ID: ${requestedAnimeId} ⚡`);
     }
 
     if (epListData) {
@@ -427,15 +406,16 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         const matchedEp = providerEps.find(e => parseInt(e.number, 10) === targetParsedNum);
 
         if (matchedEp?.id) {
-          console.log(`[WATCH] Extracting video stream from '${pKey}': ${matchedEp.id}`);
           const cleanPath = matchedEp.id.startsWith('/') ? matchedEp.id.slice(1) : matchedEp.id;
 
           try {
             const streamController = new AbortController();
-            const streamTimeout = setTimeout(() => streamController.abort(), 20000);
+            // ⚡ FIX: Slashed from 20000ms to 4000ms (Fail-Fast)
+            const streamTimeout = setTimeout(() => streamController.abort(), 4000);
             const streamRes = await fetch(`${MIRURO_API_BASE}/${cleanPath}`, {
               headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
-              signal: streamController.signal
+              signal: streamController.signal,
+              agent: MIRURO_API_BASE.startsWith('https') ? httpsAgent : httpAgent
             });
             clearTimeout(streamTimeout);
 
@@ -444,12 +424,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               if (payload?.streams?.length > 0) {
                 extractedWatchPath = cleanPath;
                 finalStreamPayload = payload;
-                console.log(`[WATCH] Successfully locked stream on '${pKey}'!`);
                 break;
               }
             }
           } catch (err) {
-            console.warn(`[WATCH] Provider '${pKey}' failed to deliver manifest. Trying next...`);
+            console.warn(`[WATCH] Provider '${pKey}' failed manifest. Trying next...`);
           }
         }
       }
@@ -475,12 +454,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         };
 
         const enrichedPayload = await enrichWithSkipTimes(finalPayload, requestedAnimeId, epNum);
-        setCache(cacheKey, enrichedPayload); // 🔥 Saves stream link to memory
+        setCache(cacheKey, enrichedPayload);
         return res.json(enrichedPayload);
       }
     }
   } catch (extractorErr) {
-    console.warn(`[WATCH] Miruro microservice path dropped, mapping local fallover logic:`, extractorErr.message);
+    console.warn(`[WATCH] Microservice unreachable, triggering INSTANT local fallover...`);
   }
 
   // 2. BACKUP NATIVE SCRAPER INTEGRATION
@@ -501,14 +480,16 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] ? `${STATIC_NATIVE_MAP[fallbackAnimeId]}-episode-${fallbackEpNum}` : `${fallbackAnimeId}-episode-${fallbackEpNum}`;
     if (!STATIC_NATIVE_MAP[fallbackAnimeId]) {
       try {
-        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 8000);
+        // ⚡ FIX: Slashed from 8000ms to 3000ms
+        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 3000);
         const actualTargetEp = (consumetInfo?.episodes || []).find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
         if (actualTargetEp?.id) targetSlug = actualTargetEp.id;
       } catch { }
     }
 
     try {
-      const rawData = await timeoutPromise(anilist.fetchEpisodeSources(targetSlug), 10000);
+      // ⚡ FIX: Slashed from 10000ms to 4000ms
+      const rawData = await timeoutPromise(anilist.fetchEpisodeSources(targetSlug), 4000);
       if (!rawData || !rawData.sources || rawData.sources.length === 0) throw new Error("Blank sources");
       const proxyWrappedData = {
         ...rawData,
