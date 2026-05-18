@@ -17,19 +17,16 @@ export default function Navbar() {
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Live Search State
   const [liveResults, setLiveResults] = useState<QuickResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // User Auth State
   const [user, setUser] = useState<any>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
-  // 🛑 AUTHENTICATION LISTENER
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -46,9 +43,7 @@ export default function Navbar() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
+        options: { redirectTo: window.location.origin }
       });
       if (error) throw error;
     } catch (error) {
@@ -66,7 +61,6 @@ export default function Navbar() {
     }
   };
 
-  // 🛑 SYNC SEARCH BAR WITH URL
   useEffect(() => {
     if (location.pathname === '/search') {
       const params = new URLSearchParams(location.search);
@@ -79,7 +73,6 @@ export default function Navbar() {
     }
   }, [location.pathname, location.search]);
 
-  // THE LIVE SEARCH DEBOUNCE ENGINE
   useEffect(() => {
     if (!searchQuery.trim()) {
       setLiveResults([]);
@@ -98,13 +91,11 @@ export default function Navbar() {
       setShowDropdown(true);
 
       try {
-        // 1. PRIMARY SEARCH: Jikan (MAL)
         const jikanRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchQuery.trim())}&limit=5`);
         const jikanData = await jikanRes.json();
 
         if (jikanData?.data && jikanData.data.length > 0) {
-          // Map Jikan data to match your existing AniList UI structure
-          const mappedResults = jikanData.data.map(anime => ({
+          const mappedResults = jikanData.data.map((anime: any) => ({
             id: anime.mal_id,
             title: {
               english: anime.title_english || anime.title,
@@ -114,23 +105,18 @@ export default function Navbar() {
               extraLarge: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url
             },
             type: anime.type?.toUpperCase() || 'TV',
-            averageScore: anime.score ? anime.score * 10 : 0 // Normalizing 0-10 to 0-100
+            averageScore: anime.score ? anime.score * 10 : 0
           }));
 
           setLiveResults(mappedResults);
-          return; // Exit if Jikan succeeds
+          return;
         }
 
-        // 2. SECONDARY SEARCH: AniList (Fallback if Jikan is empty or fails)
         const gqlQuery = `
         query ($search: String) {
           Page(page: 1, perPage: 5) {
             media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-              id
-              title { english romaji }
-              coverImage { extraLarge }
-              type
-              averageScore
+              id title { english romaji } coverImage { extraLarge } type averageScore
             }
           }
         }
@@ -157,7 +143,6 @@ export default function Navbar() {
     return () => clearTimeout(timer);
   }, [searchQuery, location.pathname, location.search]);
 
-  // CLOSE DROPDOWNS ON OUTSIDE CLICK
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -179,23 +164,11 @@ export default function Navbar() {
     }
   };
 
-  const handleResultClick = (id: number) => {
-    setShowDropdown(false);
-    setSearchQuery('');
-    navigate(`/anime/${id}`);
-  };
-
   const handleRandom = async () => {
     try {
       const randomPage = Math.floor(Math.random() * 100) + 1;
       const gqlQuery = `
-        query {
-          Page(page: ${randomPage}, perPage: 50) {
-            media(type: ANIME, sort: POPULARITY_DESC) {
-              id
-            }
-          }
-        }
+        query { Page(page: ${randomPage}, perPage: 50) { media(type: ANIME, sort: POPULARITY_DESC) { id } } }
       `;
       const response = await fetch('https://graphql.anilist.co', {
         method: 'POST',
@@ -216,19 +189,12 @@ export default function Navbar() {
   const GENRES = ["Action", "Adventure", "Comedy", "Drama", "Fantasy", "Horror", "Mecha", "Music", "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller"];
   const TYPES = [{ label: "Movies", value: "MOVIE" }, { label: "TV Series", value: "TV" }, { label: "OVAs", value: "OVA" }, { label: "ONAs", value: "ONA" }, { label: "Specials", value: "SPECIAL" }];
 
-  if (location.pathname === '/') {
-    return null;
-  }
+  if (location.pathname === '/') return null;
 
   return (
     <nav className="flex items-center justify-between px-10 py-4 bg-[#040404]/90 backdrop-blur-2xl sticky top-0 z-50 border-b border-white/5 shadow-2xl">
       <div className="flex items-center gap-2">
-        <Link
-          to="/home"
-          onClick={() => setSearchQuery('')}
-          className="flex items-center gap-3 cursor-pointer group"
-        >
-          {/* ⚡ LOGO REMOVED: Just minimalist text now */}
+        <Link to="/home" onClick={() => setSearchQuery('')} className="flex items-center gap-3 cursor-pointer group">
           <span className="text-3xl font-black tracking-tight text-white italic font-['Oswald'] drop-shadow-md transition-colors group-hover:text-blue-500">
             KURO<span className="text-blue-600">TV</span>
           </span>
@@ -240,7 +206,9 @@ export default function Navbar() {
           <Search className="w-4 h-4 text-gray-400 mr-3" />
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => { if (searchQuery.trim() && liveResults.length > 0) setShowDropdown(true); }} placeholder="Search anime..." className="bg-transparent border-none outline-none text-sm w-full placeholder-gray-500 text-white font-medium" />
           {isSearching && <Loader2 className="w-4 h-4 text-blue-500 animate-spin absolute right-20" />}
-          <button type="button" onClick={() => navigate('/search')} className="flex items-center text-[10px] font-black tracking-widest text-gray-400 ml-2 hover:text-blue-500 transition-colors uppercase bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg cursor-pointer z-50">
+
+          {/* UPDATED: Passes the search query to the filter route if it exists */}
+          <button type="button" onClick={() => navigate(searchQuery.trim() ? `/search?q=${encodeURIComponent(searchQuery.trim())}` : '/search')} className="flex items-center text-[10px] font-black tracking-widest text-gray-400 ml-2 hover:text-blue-500 transition-colors uppercase bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg cursor-pointer z-50">
             <Filter className="w-3 h-3 mr-1.5" /> Filter
           </button>
         </form>
@@ -253,7 +221,7 @@ export default function Navbar() {
               <>
                 <div className="flex flex-col">
                   {liveResults.map((anime) => (
-                    <div key={anime.id} onClick={() => handleResultClick(anime.id)} className="flex items-center gap-4 p-3 hover:bg-[#1a1a1a] transition-colors cursor-pointer border-b border-[#111] last:border-0">
+                    <Link key={anime.id} to={`/anime/${anime.id}?ep=1`} onClick={() => { setShowDropdown(false); setSearchQuery(''); }} className="flex items-center gap-4 p-3 hover:bg-[#1a1a1a] transition-colors cursor-pointer border-b border-[#111] last:border-0">
                       <img src={anime.coverImage.extraLarge} alt={anime.title.english || anime.title.romaji} className="w-10 h-14 object-cover rounded-md shadow-sm" />
                       <div className="flex flex-col flex-1">
                         <span className="text-sm font-bold text-white line-clamp-1">{anime.title.english || anime.title.romaji}</span>
@@ -262,7 +230,7 @@ export default function Navbar() {
                           {anime.averageScore && <span className="flex items-center gap-1 text-gray-400"><Star className="w-3 h-3 text-yellow-500 fill-yellow-500" />{anime.averageScore}</span>}
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
                 <button onClick={handleSearch} className="w-full py-3 bg-[#111] hover:bg-blue-600 hover:text-white transition-colors text-xs font-black tracking-widest uppercase text-gray-400 border-t border-[#222]">View all results</button>
@@ -272,7 +240,6 @@ export default function Navbar() {
         )}
       </div>
 
-      {/* NAV LINKS */}
       <div className="flex items-center gap-6 text-[12px] font-bold tracking-widest text-gray-400 uppercase">
         <button onClick={handleRandom} className="hover:text-white transition-colors cursor-pointer">Random</button>
         <div className="relative group py-4">

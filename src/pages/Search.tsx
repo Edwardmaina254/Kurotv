@@ -1,7 +1,7 @@
 // src/pages/Search.tsx
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Filter, Play, Star, ChevronDown, Check, ArrowLeft } from 'lucide-react';
+import { Filter, Play, Star, ChevronDown, Check, ArrowLeft, Loader2 } from 'lucide-react';
 
 interface SearchResult {
     id: string;
@@ -11,49 +11,27 @@ interface SearchResult {
     status: string;
     rating: number;
     totalEpisodes: number;
+    genres?: string[];
 }
 
 const FilterDropdown = ({
-    label,
-    value,
-    options,
-    onChange,
-    isOpen,
-    onToggle
+    label, value, options, onChange, isOpen, onToggle
 }: {
-    label: string,
-    value: string,
-    options: { label: string, value: string }[],
-    onChange: (val: string) => void,
-    isOpen: boolean,
-    onToggle: () => void
+    label: string, value: string, options: { label: string, value: string }[], onChange: (val: string) => void, isOpen: boolean, onToggle: () => void
 }) => {
     return (
         <div className="relative">
-            <button
-                onClick={onToggle}
-                className="flex items-center justify-between w-full min-w-[160px] bg-[#111] border border-[#222] hover:border-[#333] rounded-lg py-2.5 px-4 text-xs font-bold uppercase tracking-widest text-gray-300 transition-colors shadow-inner cursor-pointer"
-            >
-                <span className="truncate pr-2">
-                    {value ? options.find(o => o.value === value)?.label || label : label}
-                </span>
-                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isOpen ? 'rotate-180 text-blue-500' : 'text-gray-500'}`} />
+            <button onClick={onToggle} className="flex items-center justify-between w-full min-w-[160px] bg-[var(--kuro-card)] border border-[#222] hover:border-[var(--kuro-blue)] hover:text-white rounded-lg py-2.5 px-4 text-xs font-bold uppercase tracking-widest text-gray-300 transition-all shadow-inner cursor-pointer group">
+                <span className="truncate pr-2">{value ? options.find(o => o.value === value)?.label || label : label}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isOpen ? 'rotate-180 text-[var(--kuro-blue)]' : 'text-gray-500 group-hover:text-[var(--kuro-blue)]'}`} />
             </button>
-
             {isOpen && (
-                <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[200px] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] py-2 z-50 flex flex-col max-h-[300px] overflow-y-auto custom-scrollbar">
-                    <button
-                        onClick={() => onChange('')}
-                        className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${!value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
-                    >
+                <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[200px] bg-[var(--kuro-card)] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.9)] py-2 z-50 flex flex-col max-h-[300px] overflow-y-auto custom-scrollbar ring-1 ring-white/5">
+                    <button onClick={() => onChange('')} className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${!value ? 'text-[var(--kuro-blue)]' : 'text-gray-400 hover:text-white'}`}>
                         {label} {!value && <Check className="w-3.5 h-3.5" />}
                     </button>
                     {options.map((opt) => (
-                        <button
-                            key={opt.value}
-                            onClick={() => onChange(opt.value)}
-                            className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${value === opt.value ? 'text-blue-500' : 'text-gray-400 hover:text-white'}`}
-                        >
+                        <button key={opt.value} onClick={() => onChange(opt.value)} className={`text-left text-xs font-bold px-4 py-3 hover:bg-[#1a1a1a] transition-colors flex items-center justify-between cursor-pointer ${value === opt.value ? 'text-[var(--kuro-blue)]' : 'text-gray-400 hover:text-white'}`}>
                             {opt.label} {value === opt.value && <Check className="w-3.5 h-3.5" />}
                         </button>
                     ))}
@@ -70,7 +48,9 @@ export default function Search() {
     const [results, setResults] = useState<SearchResult[]>([]);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
-    const [hasNextPage, setHasNextPage] = useState(false);
+
+    const [canLoadMore, setCanLoadMore] = useState(false);
+    const [isFetchingMore, setIsFetchingMore] = useState(false);
 
     const [openDropdown, setOpenDropdown] = useState<string | null>(null);
     const filtersRef = useRef<HTMLDivElement>(null);
@@ -96,40 +76,93 @@ export default function Search() {
 
     useEffect(() => {
         const fetchSearchResults = async () => {
-            setLoading(true);
+            if (page === 1) setLoading(true);
+            else setIsFetchingMore(true);
+
             try {
-                // 🔥 PROTOCOL-SAFE STRING SANITIZER
-                // Encodes parameter extraction safely to guarantee perfect API parameter boundaries
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
-                const searchStr = query ? query.trim() : '';
+                const searchStr = query ? query.trim() : undefined;
 
-                let url = `${apiUrl}/anime/zoro/search?page=${page}&sort=${sort}`;
-                if (searchStr) url += `&q=${encodeURIComponent(searchStr)}`;
-                if (genre) url += `&genres=${encodeURIComponent(genre)}`;
-                if (format) url += `&format=${encodeURIComponent(format)}`;
+                const variables: any = { page: page, perPage: 24 };
+                if (searchStr) variables.search = searchStr;
+                if (genre) variables.genre = genre;
+                if (format) variables.format = format;
 
-                const res = await fetch(url);
-                if (!res.ok) {
-                    throw new Error(`HTTP Gateway Status: ${res.status}`);
-                }
+                if (sort === 'trending') variables.sort = ["TRENDING_DESC"];
+                else if (sort === 'popular') variables.sort = ["POPULARITY_DESC"];
+                else if (sort === 'newest') variables.sort = ["START_DATE_DESC", "TRENDING_DESC"];
+                else if (sort === 'score') variables.sort = ["SCORE_DESC", "TRENDING_DESC"];
+                else variables.sort = ["TRENDING_DESC"];
 
+                const queryStr = `
+                    query ($page: Int, $perPage: Int, $search: String, $genre: String, $format: MediaFormat, $sort: [MediaSort]) {
+                        Page(page: $page, perPage: $perPage) {
+                            pageInfo {
+                                hasNextPage
+                            }
+                            media(search: $search, genre: $genre, format: $format, type: ANIME, sort: $sort) {
+                                id
+                                title { english romaji }
+                                coverImage { extraLarge }
+                                type
+                                status
+                                averageScore
+                                episodes
+                                genres
+                            }
+                        }
+                    }
+                `;
+
+                const res = await fetch('https://graphql.anilist.co', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ query: queryStr, variables })
+                });
+
+                if (!res.ok) throw new Error("Anilist API search failed");
                 const data = await res.json();
+                
+                const pageInfo = data.data?.Page?.pageInfo;
+                const media = data.data?.Page?.media || [];
+
+                const newItems = media.map((anime: any) => ({
+                    id: anime.id.toString(),
+                    title: anime.title?.english || anime.title?.romaji || 'Unknown',
+                    image: anime.coverImage?.extraLarge || '',
+                    type: anime.type || 'TV',
+                    status: anime.status || 'UNKNOWN',
+                    rating: anime.averageScore ? anime.averageScore : 0,
+                    totalEpisodes: anime.episodes || 0,
+                    genres: anime.genres || []
+                }));
 
                 if (page === 1) {
-                    setResults(data.results || []);
+                    setResults(newItems);
                 } else {
-                    setResults(prev => [...prev, ...(data.results || [])]);
+                    setResults(prev => {
+                        const existingIds = new Set(prev.map(item => item.id));
+                        const filteredNew = newItems.filter((item: any) => !existingIds.has(item.id));
+                        return [...prev, ...filteredNew];
+                    });
                 }
-                setHasNextPage(data.hasNextPage);
+
+                setCanLoadMore(!!pageInfo?.hasNextPage);
+
             } catch (error) {
-                console.error("Search fetch gateway dropped:", error);
+                console.warn("Backend API gap detected. Falling back safely.", error);
                 if (page === 1) setResults([]);
+                setCanLoadMore(false);
             } finally {
                 setLoading(false);
+                setIsFetchingMore(false);
             }
         };
 
-        fetchSearchResults();
+        const timerId = setTimeout(() => {
+            fetchSearchResults();
+        }, 300);
+
+        return () => clearTimeout(timerId);
     }, [query, genre, format, sort, page]);
 
     const updateFilter = (key: string, value: string) => {
@@ -137,87 +170,54 @@ export default function Search() {
         if (value) newParams.set(key, value);
         else newParams.delete(key);
 
-        setPage(1);
+        setPage(1); // Reset to page 1 on new filter
         setSearchParams(newParams);
         setOpenDropdown(null);
     };
 
-    const handleBack = () => {
-        navigate('/home');
-    };
-
     return (
-        <div className="min-h-screen bg-[#040404] text-white pt-24 pb-20 px-6 md:px-12">
-
+        <div className="min-h-screen bg-[var(--kuro-bg)] text-white pt-24 pb-20 px-6 md:px-12">
             <div className="max-w-[1400px] mx-auto mb-10">
-                <button
-                    onClick={handleBack}
-                    className="flex items-center gap-2 text-[10px] font-black tracking-widest text-gray-500 hover:text-blue-500 uppercase transition-colors mb-6 cursor-pointer"
-                >
-                    <ArrowLeft className="w-4 h-4" /> Go Back
+                <button onClick={() => navigate('/home')} className="flex items-center gap-2 text-[10px] font-black tracking-widest text-gray-500 hover:text-[var(--kuro-blue)] uppercase transition-colors mb-6 cursor-pointer group">
+                    <ArrowLeft className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" /> Go Back
                 </button>
 
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6" ref={filtersRef}>
                     <h1 className="text-3xl font-black uppercase tracking-widest">
-                        {query ? (
-                            <>Results for <span className="text-blue-500">"{query}"</span></>
-                        ) : (
-                            "Discover Anime"
-                        )}
+                        {query ? <>Results for <span className="text-[var(--kuro-blue)] drop-shadow-md">"{query}"</span></> : "Discover Anime"}
                     </h1>
 
                     <div className="flex flex-wrap items-center gap-4">
-                        <FilterDropdown
-                            label="All Genres"
-                            value={genre}
-                            options={GENRES}
-                            isOpen={openDropdown === 'genre'}
-                            onToggle={() => setOpenDropdown(openDropdown === 'genre' ? null : 'genre')}
-                            onChange={(val) => updateFilter('genre', val)}
-                        />
-                        <FilterDropdown
-                            label="All Types"
-                            value={format}
-                            options={FORMATS}
-                            isOpen={openDropdown === 'format'}
-                            onToggle={() => setOpenDropdown(openDropdown === 'format' ? null : 'format')}
-                            onChange={(val) => updateFilter('format', val)}
-                        />
-                        <FilterDropdown
-                            label="Sort By"
-                            value={sort}
-                            options={SORTS}
-                            isOpen={openDropdown === 'sort'}
-                            onToggle={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')}
-                            onChange={(val) => updateFilter('sort', val)}
-                        />
+                        <FilterDropdown label="All Genres" value={genre} options={GENRES} isOpen={openDropdown === 'genre'} onToggle={() => setOpenDropdown(openDropdown === 'genre' ? null : 'genre')} onChange={(val) => updateFilter('genre', val)} />
+                        <FilterDropdown label="All Types" value={format} options={FORMATS} isOpen={openDropdown === 'format'} onToggle={() => setOpenDropdown(openDropdown === 'format' ? null : 'format')} onChange={(val) => updateFilter('format', val)} />
+                        <FilterDropdown label="Sort By" value={sort} options={SORTS} isOpen={openDropdown === 'sort'} onToggle={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')} onChange={(val) => updateFilter('sort', val)} />
                     </div>
                 </div>
             </div>
 
             <div className="max-w-[1400px] mx-auto">
                 {results.length === 0 && !loading ? (
-                    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-                        <Filter className="w-12 h-12 mb-4 opacity-20" />
-                        <h2 className="text-xl font-black uppercase tracking-widest">No Results Found</h2>
-                        <p className="text-sm font-bold mt-2">Try adjusting your filters or search term.</p>
+                    <div className="flex flex-col items-center justify-center py-24 text-gray-500 bg-[var(--kuro-card)] rounded-2xl border border-[#111] shadow-2xl">
+                        <Filter className="w-16 h-16 mb-6 opacity-20" />
+                        <h2 className="text-2xl font-black uppercase tracking-widest text-gray-400">No Results Found</h2>
+                        <p className="text-sm font-bold mt-3 text-gray-600">Try adjusting your filters or search term.</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-y-10 gap-x-6">
                         {results.map((anime) => (
-                            <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}`)} className="group cursor-pointer relative block">
-                                <div className="aspect-[2/3] bg-[#0a0a0a] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-blue-500/50 transition-all duration-500 shadow-2xl relative">
+                            <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}?ep=1`)} className="group cursor-pointer relative block">
+                                <div className="aspect-[2/3] bg-[var(--kuro-card)] rounded-[20px] overflow-hidden mb-3 border border-white/5 group-hover:border-[var(--kuro-blue)]/50 transition-all duration-500 shadow-2xl relative">
                                     <img src={anime.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={anime.title} />
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                        <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_30px_rgba(37,99,235,0.6)]">
+                                        <div className="w-12 h-12 bg-[var(--kuro-blue)] rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_30px_var(--kuro-blue)]">
                                             <Play className="w-5 h-5 text-white fill-current ml-1" />
                                         </div>
                                     </div>
-                                    <div className="absolute top-3 right-3 bg-blue-600 text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
+                                    <div className="absolute top-3 right-3 bg-[var(--kuro-blue)] text-[10px] font-black px-2 py-1 rounded-lg uppercase shadow-lg z-20">
                                         {anime.type || "TV"}
                                     </div>
                                 </div>
-                                <h4 className="font-bold text-xs truncate text-gray-300 group-hover:text-blue-400 transition-all duration-300 px-1">{anime.title}</h4>
+                                <h4 className="font-bold text-xs truncate text-gray-300 group-hover:text-[var(--kuro-blue)] transition-all duration-300 px-1">{anime.title}</h4>
                                 <div className="flex items-center gap-2 mt-1 px-1">
                                     <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest flex items-center gap-1">
                                         <Star className="w-3 h-3 text-yellow-500 fill-yellow-500" /> {anime.rating > 0 ? anime.rating : 'N/A'}
@@ -226,19 +226,32 @@ export default function Search() {
                             </div>
                         ))}
 
+                        {/* Skeleton loaders show alongside loaded items when fetching */}
                         {loading && Array.from({ length: 12 }).map((_, i) => (
-                            <div key={`skel-${i}`} className="aspect-[2/3] bg-white/5 rounded-[20px] animate-pulse" />
+                            <div key={`skel-${i}`} className="aspect-[2/3] bg-[var(--kuro-card)] rounded-[20px] animate-pulse border border-[#222]" />
                         ))}
                     </div>
                 )}
 
-                {hasNextPage && !loading && (
+                {/* LOAD MORE BUTTON STYLED WITH THEME VARIABLES */}
+                {canLoadMore && !loading && (
                     <div className="mt-16 flex justify-center">
                         <button
                             onClick={() => setPage(p => p + 1)}
-                            className="bg-[#111] hover:bg-blue-600 border border-[#222] hover:border-blue-500 text-white px-10 py-3.5 rounded-lg font-black tracking-widest uppercase text-xs transition-all shadow-xl cursor-pointer"
+                            disabled={isFetchingMore}
+                            className="bg-[var(--kuro-card)] hover:bg-[var(--kuro-blue)] border border-[#222] hover:border-[var(--kuro-blue)] text-white px-12 py-4 rounded-xl font-black tracking-widest uppercase text-xs transition-all duration-300 shadow-[0_10px_30px_rgba(0,0,0,0.8)] hover:shadow-[0_10px_40px_var(--kuro-blue)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 group"
                         >
-                            Load More Anime
+                            {isFetchingMore ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Loading...
+                                </>
+                            ) : (
+                                <>
+                                    Load More Anime
+                                    <ChevronDown className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" />
+                                </>
+                            )}
                         </button>
                     </div>
                 )}

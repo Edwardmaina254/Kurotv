@@ -19,7 +19,7 @@ export default function TrendingSidebar({ trendingList }: { trendingList: any[] 
           // 🔥 CHANGED TO <Link> TAG SO YOU CAN RIGHT CLICK -> OPEN IN NEW TAB
           <Link
             key={anime.id}
-            to={`/anime/${anime.id}`}
+            to={`/anime/${anime.id}?ep=1`}
             className="flex items-center gap-5 group cursor-pointer block"
           >
             <div className="text-2xl font-black italic text-white/5 group-hover:text-blue-600/40 transition-all duration-500 w-8">
