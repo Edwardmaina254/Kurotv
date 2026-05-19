@@ -131,7 +131,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/anime/zoro/top-airing', async (req, res) => {
   const cacheKey = 'top-airing';
   if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
-  
+
   try {
     const query = `
       query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
@@ -144,7 +144,7 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
       image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '',
       rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
-    
+
     setCache(cacheKey, formatted, 2); // Cache trending for 2 hours
     return res.json({ results: formatted });
   } catch { return res.json({ results: [] }); }
@@ -165,10 +165,10 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
       title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
-    
+
     const unique = []; const seen = new Set();
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
-    
+
     const finalData = unique.slice(0, 20);
     setCache(cacheKey, finalData, 0.5); // 🔥 Cache recent for only 30 minutes!
     return res.json({ results: finalData });
@@ -278,11 +278,32 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
   const baseUrl = `${protocol}://${req.get('host')}`;
 
-  try {
-    let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
-    const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000); // 🔥 5s absolute proxy limit
 
-    const fetchRes = await fetch(targetUrl, { headers, agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent });
+  try {
+    let origin = "https://kwik.cx";
+    try { origin = new URL(referer).origin; } catch (e) { }
+
+    // 🔥 THE DISGUISE: Massive header injection to bypass Cloudflare/Kwik bot blocks
+    const headers = {
+      "Referer": referer,
+      "Origin": origin,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "cross-site",
+      "Connection": "keep-alive"
+    };
+
+    const fetchRes = await fetch(targetUrl, { headers, agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent, signal: controller.signal });
+    clearTimeout(timeout);
+
     if (!fetchRes.ok) return res.status(502).send("Proxy Stream Error");
 
     let manifestText = await fetchRes.text();
@@ -295,7 +316,10 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(fetchRes.status).send(rewritten);
-  } catch (err) { res.status(502).send("Proxy Stream Error"); }
+  } catch (err) {
+    clearTimeout(timeout);
+    return res.status(504).send("Upstream Manifest Timeout");
+  }
 });
 
 app.get('/proxy/stream', async (req, res) => {
@@ -303,12 +327,34 @@ app.get('/proxy/stream', async (req, res) => {
   const referer = req.query.referer || 'https://kwik.cx/';
   if (!targetUrl) return res.status(400).send("Missing URL");
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000); // 🔥 6s Time-To-First-Byte limit
+
   try {
-    let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
-    const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*", "Accept-Encoding": "identity" };
+    let origin = "https://kwik.cx";
+    try { origin = new URL(referer).origin; } catch (e) { }
+
+    // 🔥 THE DISGUISE: Massive header injection to bypass Cloudflare/Kwik bot blocks
+    const headers = {
+      "Referer": referer,
+      "Origin": origin,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "cross-site",
+      "Connection": "keep-alive",
+      "Accept-Encoding": "identity"
+    };
     if (req.headers.range) headers.Range = req.headers.range;
 
-    const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow', agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent });
+    const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow', agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent, signal: controller.signal });
+    clearTimeout(timeout);
+
     if (!fetchRes.ok) return res.status(502).send();
 
     let upstreamType = (fetchRes.headers.get('content-type') || 'video/mp2t').toLowerCase();
@@ -326,7 +372,10 @@ app.get('/proxy/stream', async (req, res) => {
     nodeStream.on('error', () => { if (!res.headersSent) res.status(502).end(); else res.end(); });
     res.on('error', () => { nodeStream.destroy(); });
     nodeStream.pipe(res);
-  } catch (err) { return res.status(502).send("Proxy Stream Error"); }
+  } catch (err) {
+    clearTimeout(timeout);
+    return res.status(504).send("Upstream Video Chunk Timeout");
+  }
 });
 
 // ==========================================

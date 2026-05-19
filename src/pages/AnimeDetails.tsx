@@ -664,12 +664,15 @@ export default function AnimeDetails() {
         if (streamData.isM3U8 && Hls.isSupported()) {
             hls = new Hls({
                 xhrSetup: (xhr) => { xhr.withCredentials = false; },
-                fragLoadingTimeOut: 30000,
-                manifestLoadingTimeOut: 20000,
-                levelLoadingTimeOut: 20000,
-                fragLoadingMaxRetry: 6,
-                manifestLoadingMaxRetry: 4,
-                manifestLoadingRetryDelay: 500
+                // 🔥 THE NUKE SWITCH: Absolute zero tolerance for lagging servers
+                fragLoadingTimeOut: 4000,      // Kill chunk loads after 4 seconds
+                manifestLoadingTimeOut: 4000,  // Kill manifest loads after 4 seconds
+                levelLoadingTimeOut: 4000,
+                fragLoadingMaxRetry: 0,        // ZERO retries. If it fails, move on.
+                manifestLoadingMaxRetry: 0,
+                levelLoadingMaxRetry: 0,
+                enableWorker: true,
+                lowLatencyMode: true
             });
 
             hls.attachMedia(video);
@@ -686,9 +689,9 @@ export default function AnimeDetails() {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.error('[HLS] Crucial MSE decoding failure. Evacuating to next stream pipeline node.');
+                            console.error(`[HLS] Fatal stream error (${data.details}). Evacuating to next stream node.`);
                             hls!.destroy();
-                            fallbackRef.current();
+                            fallbackRef.current(); // Instantly skips to the next server
                             break;
                         default:
                             hls!.destroy();
@@ -815,8 +818,32 @@ export default function AnimeDetails() {
         const onLoadedMetadata = () => setDuration(video.duration);
         const onPlay = () => setIsPlaying(true);
         const onPause = () => setIsPlaying(false);
-        const onWaiting = () => setIsBuffering(true);
-        const onPlaying = () => setIsBuffering(false);
+
+        // 🔥 STALL DETECTOR: If buffering > 5s with no progress, nuke & fallback
+        let stallTimer: number | null = null;
+        let lastProgressTime = video.currentTime;
+
+        const clearStall = () => {
+            if (stallTimer !== null) { window.clearTimeout(stallTimer); stallTimer = null; }
+        };
+
+        const onWaiting = () => {
+            setIsBuffering(true);
+            lastProgressTime = video.currentTime;
+            clearStall();
+            stallTimer = window.setTimeout(() => {
+                // Only fire if currentTime hasn't advanced (genuine stall, not a seek)
+                if (Math.abs(video.currentTime - lastProgressTime) < 0.5) {
+                    console.warn('[STALL] Stream stalled for 5s with no progress. Evacuating to next source.');
+                    fallbackRef.current();
+                }
+            }, 5000);
+        };
+
+        const onPlaying = () => {
+            setIsBuffering(false);
+            clearStall(); // Progress resumed — cancel the stall timer
+        };
 
         video.addEventListener('timeupdate', onTimeUpdate);
         video.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -826,6 +853,7 @@ export default function AnimeDetails() {
         video.addEventListener('playing', onPlaying);
 
         return () => {
+            clearStall();
             video.removeEventListener('timeupdate', onTimeUpdate);
             video.removeEventListener('loadedmetadata', onLoadedMetadata);
             video.removeEventListener('play', onPlay);
