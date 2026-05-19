@@ -899,51 +899,51 @@ export default function AnimeDetails() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
-                <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+            <div className="min-h-screen flex items-center justify-center">
+                <Loader2 className="w-6 h-6 text-accent animate-spin" />
             </div>
         );
     }
 
     if (error || chronologicalSeasons.length === 0) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-black">
-                <h2 className="text-2xl font-bold text-white">Error Loading Anime Details</h2>
+            <div className="min-h-screen flex items-center justify-center">
+                <h2 className="text-lg font-bold text-muted">Error Loading Anime Details</h2>
             </div>
         );
     }
 
     return (
-        <div className="w-full min-h-screen bg-black text-gray-300 font-sans pb-24 pt-24 px-4 sm:px-8">
+        <div className="w-full min-h-screen pt-24 pb-12 px-4 sm:px-8">
             <div className="max-w-[1500px] mx-auto">
 
-                <div className="flex items-center gap-2 text-[10px] font-black tracking-widest text-gray-500 mb-6 uppercase">
-                    <button onClick={() => navigate(-1)} className="flex items-center hover:text-blue-500 transition-colors cursor-pointer">
-                        <ArrowLeft className="w-3 h-3 mr-1.5" /> Back
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted mb-5 uppercase">
+                    <button onClick={() => navigate(-1)} className="flex items-center hover:text-fg transition-colors cursor-pointer">
+                        <ArrowLeft className="w-3 h-3 mr-1" /> Back
                     </button>
-                    <span className="text-gray-700">/</span>
-                    <span className="hover:text-white transition-colors">{primarySeason?.type || "TV Series"}</span>
-                    <span className="text-gray-700">/</span>
-                    <span className="text-white">Watching <span className="text-blue-500">{primarySeason?.title}</span></span>
+                    <span className="text-border">/</span>
+                    <span>{primarySeason?.type || "TV Series"}</span>
+                    <span className="text-border">/</span>
+                    <span className="text-fg">Watching <span className="text-accent">{primarySeason?.title}</span></span>
                 </div>
 
-                <div className="flex flex-col xl:flex-row gap-5 items-start">
+                <div className="flex flex-col xl:flex-row gap-8 items-start">
                     <div className="flex-1 min-w-0 w-full">
 
-                        <div className="bg-[#050505] p-2 md:p-4 rounded-xl shadow-2xl border border-[#111] mb-6">
+                        <div className="bg-surface border border-border rounded-2xl p-2 md:p-4 mb-6 transition-transform duration-300" data-reveal>
                             <div
                                 ref={playerContainerRef}
-                                className={`w-full aspect-video bg-black relative rounded-lg overflow-hidden flex items-center justify-center border border-[#111] group ${!isMouseActive && isPlaying ? 'cursor-none [&_*]:cursor-none' : ''}`}
+                                className={`w-full aspect-video bg-black relative rounded-2xl overflow-hidden flex items-center justify-center border border-border group ${!isMouseActive && isPlaying ? 'cursor-none [&_*]:cursor-none' : ''}`}
                                 onMouseMove={handleMouseMove}
                                 onMouseLeave={() => { if (isPlaying) { setShowControls(false); setIsMouseActive(false); } }}
                             >
                                 {streamError ? (
                                     <div className="flex flex-col items-center justify-center w-full h-full bg-black z-50 p-6 text-center">
-                                        <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
-                                            <span className="text-red-500 font-bold text-2xl">!</span>
+                                        <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 border border-danger/30 bg-danger/10">
+                                            <span className="text-danger font-bold text-lg">!</span>
                                         </div>
-                                        <h3 className="text-white font-black tracking-widest uppercase mb-2">Stream Unavailable</h3>
-                                        <p className="text-gray-500 text-xs font-bold max-w-md">{streamError}</p>
+                                        <h3 className="text-sm font-semibold text-white mb-1">Stream Unavailable</h3>
+                                        <p className="text-xs text-white/60 max-w-md">{streamError}</p>
                                     </div>
                                 ) : streamData ? (
                                     <div className="w-full h-full relative">
@@ -969,72 +969,59 @@ export default function AnimeDetails() {
 
                                                 {isBuffering && (
                                                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 z-20 pointer-events-none">
-                                                        <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+                                                        <Loader2 className="w-12 h-12 text-accent animate-spin" />
                                                     </div>
                                                 )}
 
-                                                <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-16 pb-4 px-6 z-40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                                                    <div className="w-full flex items-center group/scrubber cursor-pointer mb-3 pointer-events-auto relative">
-                                                        <input
-                                                            type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
-                                                            className="w-full h-1 appearance-none outline-none rounded-full cursor-pointer hover:h-1.5 transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full relative z-20"
-                                                            style={{ background: `linear-gradient(to right, #ffffff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }}
-                                                        />
+                                                <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-14 pb-4 px-5 z-40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                                                    <div className="w-full flex items-center mb-2.5 pointer-events-auto">
+                                                        <input type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
+                                                            className="w-full h-1 appearance-none outline-none rounded-full cursor-pointer hover:h-1.5 transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full"
+                                                            style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
                                                     </div>
-
                                                     <div className="flex items-center justify-between pointer-events-auto">
-                                                        <div className="flex items-center gap-5">
-                                                            <button onClick={togglePlay} className="text-white hover:text-blue-400 transition-colors z-50 relative cursor-pointer">
-                                                                {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
+                                                        <div className="flex items-center gap-4">
+                                                            <button onClick={togglePlay} className="text-white hover:text-accent transition-colors cursor-pointer">
+                                                                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                                                             </button>
-
-                                                            <div className="flex items-center gap-3 z-50 relative">
-                                                                <button onClick={() => skipTime(-10)} className="text-white/80 hover:text-white transition-colors cursor-pointer"><RotateCcw className="w-5 h-5" /></button>
-                                                                <button onClick={() => skipTime(10)} className="text-white/80 hover:text-white transition-colors cursor-pointer"><RotateCw className="w-5 h-5" /></button>
+                                                            <div className="flex items-center gap-2.5">
+                                                                <button onClick={() => skipTime(-10)} className="text-white/70 hover:text-white transition-colors cursor-pointer"><RotateCcw className="w-4 h-4" /></button>
+                                                                <button onClick={() => skipTime(10)} className="text-white/70 hover:text-white transition-colors cursor-pointer"><RotateCw className="w-4 h-4" /></button>
                                                             </div>
-
-                                                            <div className="flex items-center gap-2 group/volume relative z-50">
-                                                                <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors cursor-pointer">
-                                                                    {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                                                            <div className="flex items-center gap-1.5 group/volume">
+                                                                <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors cursor-pointer">
+                                                                    {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                                                                 </button>
-                                                                <input
-                                                                    type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume} onChange={handleVolumeChange}
-                                                                    className="w-0 opacity-0 group-hover/volume:w-16 group-hover/volume:opacity-100 transition-all duration-300 h-1 accent-white appearance-none bg-white/30 rounded-full cursor-pointer"
-                                                                />
+                                                                <input type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume} onChange={handleVolumeChange}
+                                                                    className="w-0 opacity-0 group-hover/volume:w-14 group-hover/volume:opacity-100 transition-all duration-300 h-1 accent-white appearance-none bg-white/30 rounded-full cursor-pointer" />
                                                             </div>
-
-                                                            <span className="text-xs font-bold font-mono tracking-wider text-white/90 z-50 relative pointer-events-none">
-                                                                {formatTime(currentTime)} <span className="text-white/40 mx-1">/</span> {formatTime(duration)}
+                                                            <span className="text-[11px] font-semibold font-mono tracking-wider text-white/80 pointer-events-none">
+                                                                {formatTime(currentTime)} <span className="text-white/30 mx-0.5">/</span> {formatTime(duration)}
                                                             </span>
                                                         </div>
-
-                                                        <div className="flex items-center gap-5 relative z-50">
-                                                            <button onClick={() => setShowSettings(!showSettings)} className={`text-white/80 hover:text-white transition-transform duration-300 cursor-pointer ${showSettings ? 'rotate-90 text-blue-400' : ''}`}>
-                                                                <Settings className="w-5 h-5" />
-                                                            </button>
-                                                            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors cursor-pointer">
-                                                                {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-                                                            </button>
-
-                                                            {showSettings && (
-                                                                <div className="absolute bottom-12 right-0 w-40 bg-black/90 backdrop-blur-xl border border-white/10 rounded-lg p-2 shadow-2xl flex flex-col gap-1 pointer-events-auto">
-                                                                    <span className="text-[10px] font-black text-gray-500 px-2 py-1 uppercase tracking-widest">Quality</span>
-                                                                    {qualities.length > 0 ? (
-                                                                        <>
-                                                                            <button onClick={() => changeQuality(-1)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === -1 ? 'text-blue-400' : 'text-white'}`}>
-                                                                                Auto {currentQuality === -1 && <Check className="w-3 h-3" />}
-                                                                            </button>
-                                                                            {qualities.map(q => (
-                                                                                <button key={q.level} onClick={() => changeQuality(q.level)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === q.level ? 'text-blue-400' : 'text-white'}`}>
-                                                                                    {q.height}p {currentQuality === q.level && <Check className="w-3 h-3" />}
-                                                                                </button>
-                                                                            ))}
-                                                                        </>
-                                                                    ) : (
-                                                                        <button className="text-xs font-bold text-left px-3 py-2 rounded-md flex justify-between text-blue-400 cursor-default">Default (Source) <Check className="w-3 h-3" /></button>
-                                                                    )}
-                                                                </div>
-                                                            )}
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="relative">
+                                                                <button onClick={() => setShowSettings(!showSettings)} className={`text-white/70 hover:text-white transition-transform cursor-pointer ${showSettings ? 'rotate-90 text-accent' : ''}`}>
+                                                                    <Settings className="w-4 h-4" />
+                                                                </button>
+                                                                {showSettings && (
+                                                                    <div className="absolute bottom-8 right-0 w-36 bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl p-1.5 flex flex-col gap-1 pointer-events-auto">
+                                                                        <span className="text-[9px] font-semibold text-white/50 px-2 py-1 uppercase tracking-wider">Quality</span>
+                                                                        {qualities.length > 0 ? (
+                                                                            <>
+                                                                                <button onClick={() => changeQuality(-1)} className={`text-[11px] font-medium text-left px-3 py-1.5 rounded hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === -1 ? 'text-accent' : 'text-white'}`}>Auto {currentQuality === -1 && <Check className="w-3 h-3" />}</button>
+                                                                                {qualities.map(q => (
+                                                                                    <button key={q.level} onClick={() => changeQuality(q.level)} className={`text-xs font-bold text-left px-3 py-2 rounded-md hover:bg-white/10 flex justify-between cursor-pointer ${currentQuality === q.level ? 'text-accent' : 'text-white'}`}>
+                                                                                        {q.height}p {currentQuality === q.level && <Check className="w-3 h-3" />}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </>
+                                                                        ) : (
+                                                                            <button className="text-xs font-bold text-left px-3 py-2 rounded-md flex justify-between text-accent-dim cursor-default">Default (Source) <Check className="w-3 h-3" /></button>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1043,45 +1030,40 @@ export default function AnimeDetails() {
                                     </div>
                                 ) : isFetchingStream ? (
                                     <div className="flex flex-col items-center justify-center w-full h-full bg-black z-50">
-                                        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
-                                        <p className="text-[10px] font-black tracking-widest text-blue-400 uppercase animate-pulse">
-                                            {getLoadingText()}
-                                        </p>
+                                        <Loader2 className="w-8 h-8 text-accent animate-spin mb-3" />
+                                        <p className="text-[10px] font-semibold tracking-wider text-accent uppercase animate-pulse">{getLoadingText()}</p>
                                     </div>
                                 ) : (
                                     <>
-                                        <img src={currentPlayingSeasonObj?.bannerImage || currentPlayingSeasonObj?.image} alt={currentPlayingSeasonObj?.title} className="absolute inset-0 w-full h-full object-cover opacity-20 blur-md grayscale-[40%]" />
-                                        <div className="absolute inset-0 bg-black/80" />
-                                        <div className="z-10 flex flex-col items-center gap-4">
-                                            <Play className="w-16 h-16 text-white opacity-90" />
+                                        <img src={currentPlayingSeasonObj?.bannerImage || currentPlayingSeasonObj?.image} alt="" className="absolute inset-0 w-full h-full object-cover opacity-10" />
+                                        <div className="absolute inset-0 bg-black/40" />
+                                        <div className="z-10 flex flex-col items-center gap-3">
+                                            <Play className="w-12 h-12 text-muted" />
                                             {currentPlayingSeasonObj?.episodes && currentPlayingSeasonObj.episodes.length > 0 ? (
-                                                <button onClick={() => handlePlayEpisode(currentPlayingSeasonObj.episodes![0], currentPlayingSeasonObj.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs transition-colors shadow-lg relative z-50 cursor-pointer">Watch Episode 1</button>
+                                                <button onClick={() => handlePlayEpisode(currentPlayingSeasonObj.episodes![0], currentPlayingSeasonObj.id)} className="bg-accent hover:bg-accent-dim text-white px-8 py-2.5 rounded-xl font-semibold text-xs tracking-wider uppercase transition-colors cursor-pointer shadow-sm">Watch Episode 1</button>
                                             ) : (
-                                                <div className="bg-transparent border border-[#333] text-gray-400 px-10 py-3 rounded-md font-bold uppercase tracking-widest text-xs">Transmission Pending</div>
+                                                <span className="text-xs text-muted font-medium uppercase tracking-wider border border-border px-8 py-2.5 rounded-xl">Transmission Pending</span>
                                             )}
                                         </div>
                                     </>
                                 )}
                             </div>
 
-                            <div className="flex flex-col lg:flex-row gap-6 mt-4 px-2 items-center justify-between">
-                                <div className="text-center lg:text-left w-full lg:w-auto">
-                                    <p className="text-sm text-gray-400">Watching <span className="text-blue-400 font-bold">{currentPlayingSeasonObj?.title}</span> <span className="text-white font-black ml-1">Episode {activeEpisode?.number || 1}</span></p>
-                                </div>
-
-                                <div className="flex flex-col items-end gap-3 mt-2 lg:mt-0">
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex-shrink-0">Audio:</span>
-                                        <div className="flex bg-[#111] p-1 rounded-md border border-[#222]">
-                                            <button onClick={() => { setAudioMode('sub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'sub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${audioMode === 'sub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>SUB</button>
-                                            <button onClick={() => { setAudioMode('dub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'dub'); }} className={`px-4 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${audioMode === 'dub' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>DUB</button>
+                            <div className="flex flex-col lg:flex-row gap-4 mt-4 px-2 items-center justify-between">
+                                <p className="text-xs text-muted">Watching <span className="text-accent font-semibold">{currentPlayingSeasonObj?.title}</span> <span className="text-fg font-semibold ml-1">Episode {activeEpisode?.number || 1}</span></p>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="kicker">Audio:</span>
+                                        <div className="flex bg-surface p-0.5 rounded-md border border-border">
+                                            <button onClick={() => { setAudioMode('sub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'sub'); }} className={`px-3.5 py-1 text-[10px] font-semibold rounded transition-colors cursor-pointer ${audioMode === 'sub' ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}>SUB</button>
+                                            <button onClick={() => { setAudioMode('dub'); if (activeEpisode && playingSeasonId) handlePlayEpisode(activeEpisode, playingSeasonId, 'dub'); }} className={`px-3.5 py-1 text-[10px] font-semibold rounded transition-colors cursor-pointer ${audioMode === 'dub' ? 'bg-accent text-white' : 'text-muted hover:text-fg'}`}>DUB</button>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex-shrink-0">Server:</span>
-                                        <div className="flex flex-wrap gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="kicker">Server:</span>
+                                        <div className="flex gap-1.5">
                                             {['Vidstreaming', 'MegaCloud', 'StreamSB'].map(srv => (
-                                                <button key={srv} onClick={() => handleServerChange(srv)} className={`px-4 py-1.5 rounded-md text-[11px] font-bold shadow-md transition-colors cursor-pointer ${activeServer === srv ? 'bg-blue-600 text-white' : 'bg-[#111] border border-[#222] text-gray-400 hover:text-white'}`}>{srv}</button>
+                                                <button key={srv} onClick={() => handleServerChange(srv)} className={`px-3 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${activeServer === srv ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-fg'}`}>{srv}</button>
                                             ))}
                                         </div>
                                     </div>
@@ -1093,30 +1075,28 @@ export default function AnimeDetails() {
                             if (playingSeasonId !== seasonObj.id) return null;
                             const seasonEps = seasonObj.episodes || [];
                             return (
-                                <div key={`chrono-ep-block-${seasonObj.id}`} className="mb-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
+                                <div key={`chrono-ep-block-${seasonObj.id}`} className="bg-surface border border-border rounded-2xl p-5 mb-6 transition-transform duration-300" data-reveal>
                                     <div className="flex items-center gap-4 mb-4">
-                                        <div className="flex-1 h-[1px] bg-[#111]"></div>
-                                        <h3 className="text-sm font-black uppercase tracking-widest text-white">Episodes</h3>
-                                        <div className="flex-1 h-[1px] bg-[#111]"></div>
+                                        <div className="flex-1 h-px bg-border"></div>
+                                        <h3 className="text-xs font-semibold tracking-wider text-fg uppercase">Episodes</h3>
+                                        <div className="flex-1 h-px bg-border"></div>
                                     </div>
-                                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2 max-h-[300px] overflow-y-auto pr-2 p-1">
+                                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
                                         {seasonEps.length > 0 ? (
                                             seasonEps.map((ep) => {
                                                 const isWatched = watchedEpisodes.has(ep.id.toString());
                                                 const isActive = activeEpisode?.id?.toString() === ep.id.toString();
                                                 return (
-                                                    <button
-                                                        key={`ep-grid-btn-${ep.id}`} id={isActive ? `ep-btn-${ep.id}` : undefined} onClick={() => handlePlayEpisode(ep, seasonObj.id)}
-                                                        className={`relative h-10 rounded border transition-all duration-300 flex items-center justify-center font-bold text-xs overflow-hidden cursor-pointer ${isActive ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] scale-[1.05] z-10' : isWatched ? 'bg-[#0a0a0a] border-[#222] text-gray-500 hover:text-gray-300' : 'bg-[#111] border-[#333] text-gray-300 hover:border-blue-500/50'}`}
-                                                    >
+                                                    <button key={`ep-grid-btn-${ep.id}`} id={isActive ? `ep-btn-${ep.id}` : undefined} onClick={() => handlePlayEpisode(ep, seasonObj.id)}
+                                                        className={`relative h-9 rounded border transition-all duration-200 flex items-center justify-center font-semibold text-xs cursor-pointer ${isActive ? 'bg-accent border-accent text-white z-10' : isWatched ? 'bg-surface border-border text-muted hover:text-fg' : 'bg-surface border-border text-muted hover:border-muted'}`}>
                                                         {ep.number}
-                                                        {isWatched && !isActive && <div className="absolute bottom-0 left-0 w-full h-[3px] bg-gray-600/50" />}
-                                                        {isActive && <div className="absolute bottom-0 left-0 w-full h-[3px] bg-white/40" />}
+                                                        {isWatched && !isActive && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-border" />}
+                                                        {isActive && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-white/40" />}
                                                     </button>
                                                 );
                                             })
                                         ) : (
-                                            <div className="col-span-full py-8 text-center text-gray-500 font-bold uppercase text-xs">Transmission Pending</div>
+                                            <div className="col-span-full py-8 text-center text-muted text-xs font-semibold uppercase">Transmission Pending</div>
                                         )}
                                     </div>
                                 </div>
@@ -1124,22 +1104,22 @@ export default function AnimeDetails() {
                         })}
 
                         {animeFetchResult?.relations && animeFetchResult.relations.length > 0 && (
-                            <div className="mb-6 bg-[#030303] rounded-xl p-5 border border-[#111]">
+                            <div className="bg-surface border border-border rounded-2xl p-5 mb-6 transition-transform duration-300" data-reveal>
                                 <div className="flex items-center gap-4 mb-4">
-                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
-                                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Related Seasons & Media</h3>
-                                    <div className="flex-1 h-[1px] bg-[#111]"></div>
+                                    <div className="flex-1 h-px bg-border"></div>
+                                    <h3 className="text-xs font-semibold tracking-wider text-fg uppercase">Related Seasons & Media</h3>
+                                    <div className="flex-1 h-px bg-border"></div>
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                     {animeFetchResult.relations.map((rel: Relation) => (
-                                        <button key={rel.id} onClick={() => navigate(`/anime/${rel.id}`)} className="flex items-start gap-3 p-2.5 bg-[#0a0a0a] hover:bg-[#111] border border-[#1a1a1a] rounded-lg transition-all text-left cursor-pointer group">
-                                            <img src={rel.image} alt={rel.title} className="w-12 h-16 object-cover rounded shrink-0 bg-[#111]" />
-                                            <div className="flex flex-col min-w-0 flex-1 justify-between h-full py-0.5">
+                                        <button key={rel.id} onClick={() => navigate(`/anime/${rel.id}`)} className="flex items-start gap-2.5 p-2.5 bg-surface hover:bg-bg border border-border rounded-xl transition-all text-left cursor-pointer group">
+                                            <img src={rel.image} alt={rel.title} className="w-11 h-15 object-cover rounded shrink-0" />
+                                            <div className="flex flex-col min-w-0 flex-1 justify-between py-0.5">
                                                 <div>
-                                                    <span className="text-[9px] font-black text-blue-500 tracking-wider uppercase block mb-0.5">{rel.relationType?.replace('_', ' ')}</span>
-                                                    <h4 className="text-xs font-bold text-gray-200 group-hover:text-white line-clamp-2 leading-tight mb-1.5">{rel.title}</h4>
+                                                    <span className="kicker block mb-0.5">{rel.relationType?.replace('_', ' ')}</span>
+                                                    <h4 className="text-[11px] font-medium text-muted group-hover:text-fg line-clamp-2 leading-snug mb-1">{rel.title}</h4>
                                                 </div>
-                                                <span className="text-[8px] font-black text-gray-500 bg-[#111] px-1.5 py-0.5 rounded w-fit uppercase tracking-wider">{rel.type || 'TV'}</span>
+                                                <span className="text-[8px] font-semibold text-muted bg-surface px-1.5 py-0.5 rounded w-fit uppercase tracking-wider">{rel.type || 'TV'}</span>
                                             </div>
                                         </button>
                                     ))}
@@ -1147,26 +1127,26 @@ export default function AnimeDetails() {
                             </div>
                         )}
 
-                        <div className="flex flex-col gap-8">
+                        <div className="flex flex-col gap-6">
                             {chronologicalSeasons.map((seasonObj) => {
                                 if (playingSeasonId !== seasonObj.id) return null;
                                 return (
-                                    <div key={`chrono-block-${seasonObj.id}`} className="bg-[#030303] rounded-xl p-5 border border-[#111]">
-                                        <div className="flex flex-col sm:flex-row gap-6 items-start">
-                                            <div className="w-full sm:w-[160px] shrink-0 aspect-[2/3] rounded-lg overflow-hidden border border-[#1a1a1a] relative">
+                                    <div key={`chrono-block-${seasonObj.id}`} className="bg-surface border border-border rounded-2xl p-5 transition-transform duration-300" data-reveal>
+                                        <div className="flex flex-col sm:flex-row gap-5 items-start">
+                                            <div className="w-full sm:w-[150px] shrink-0 aspect-[2/3] rounded-xl overflow-hidden border border-border">
                                                 <img src={seasonObj.image} alt={seasonObj.title} className="w-full h-full object-cover" />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="text-xl font-black text-white mb-2 leading-tight">{seasonObj.title}</h3>
-                                                <p className="text-gray-400 text-xs leading-relaxed line-clamp-3 mb-4 font-medium">{seasonObj.description?.replace(/<[^>]*>/g, '') || "No synopsis available."}</p>
-                                                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs bg-[#080808] p-3 rounded-lg border border-[#111]">
-                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Status:</span><span className="text-gray-300">{seasonObj.status}</span></div>
-                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Aired:</span><span className="text-gray-300">{seasonObj.releaseDate}</span></div>
-                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Score:</span><span className="text-gray-300 flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-yellow-500" /> {seasonObj.rating}</span></div>
-                                                    <div className="flex gap-2"><span className="font-bold text-gray-500">Episodes:</span><span className="text-gray-300">{seasonObj.episodes?.length || '--'}</span></div>
+                                                <h3 className="text-lg font-bold text-fg mb-2 leading-tight font-display">{seasonObj.title}</h3>
+                                                <p className="text-muted text-xs leading-relaxed line-clamp-3 mb-3">{seasonObj.description?.replace(/<[^>]*>/g, '') || "No synopsis available."}</p>
+                                                <div className="grid grid-cols-2 gap-x-5 gap-y-1.5 text-xs bg-bg p-3 rounded-xl border border-border">
+                                                    <div className="flex gap-1.5"><span className="font-medium text-muted">Status:</span><span className="text-fg">{seasonObj.status}</span></div>
+                                                    <div className="flex gap-1.5"><span className="font-medium text-muted">Aired:</span><span className="text-fg">{seasonObj.releaseDate}</span></div>
+                                                    <div className="flex gap-1.5"><span className="font-medium text-muted">Score:</span><span className="text-fg flex items-center gap-1"><Star className="w-3 h-3 text-yellow-500 fill-yellow-500" /> {seasonObj.rating}</span></div>
+                                                    <div className="flex gap-1.5"><span className="font-medium text-muted">Episodes:</span><span className="text-fg">{seasonObj.episodes?.length || '--'}</span></div>
                                                 </div>
-                                                <div className="flex flex-wrap gap-1.5 mt-3">
-                                                    {seasonObj.genres?.map(genre => <span key={genre} className="text-[9px] border border-[#1a1a1a] bg-[#0a0a0a] text-gray-400 px-2 py-0.5 rounded uppercase tracking-wider">{genre}</span>)}
+                                                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                                    {seasonObj.genres?.map(genre => <span key={genre} className="text-[9px] border border-border bg-surface text-muted px-2 py-0.5 rounded uppercase tracking-wider">{genre}</span>)}
                                                 </div>
                                             </div>
                                         </div>
@@ -1175,11 +1155,9 @@ export default function AnimeDetails() {
                             })}
                         </div>
 
-                        <div className="mt-8 flex items-center justify-start">
-                            <button
-                                onClick={toggleWatchlist} disabled={watchlistLoading}
-                                className={`flex items-center justify-center gap-2 px-8 py-3 rounded-md transition-colors border font-bold text-xs uppercase tracking-widest cursor-pointer ${isInWatchlist ? 'bg-blue-600 text-white border-blue-500 hover:bg-red-600' : 'bg-[#050505] text-white border-[#111] hover:bg-white hover:text-black'}`}
-                            >
+                        <div className="mt-6 flex items-center justify-start">
+                            <button onClick={toggleWatchlist} disabled={watchlistLoading}
+                                className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl transition-all border font-semibold text-xs uppercase tracking-wider cursor-pointer ${isInWatchlist ? 'bg-accent text-white border-accent hover:bg-danger hover:border-danger' : 'bg-surface text-fg border-border hover:bg-surface hover:text-fg hover:border-muted shadow-sm'}`}>
                                 {watchlistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bookmark className={`w-4 h-4 ${isInWatchlist ? 'fill-current' : ''}`} />}
                                 {isInWatchlist ? 'Remove from List' : 'Add to List'}
                             </button>
@@ -1187,37 +1165,32 @@ export default function AnimeDetails() {
 
                     </div>
 
-                    <div className="w-full xl:w-[360px] flex-shrink-0">
-                        <div className="sticky top-24 bg-[#050505] rounded-xl border border-[#111] overflow-hidden">
-                            <div className="px-4 py-3 border-b border-[#111] flex items-center justify-between">
-                                <h3 className="text-xs font-black uppercase tracking-widest text-white">You Might Also Like</h3>
-                                {recommendations.length > 0 && <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">{recommendations.length}</span>}
+                    <div className="w-full xl:w-[340px] shrink-0" data-reveal>
+                        <div className="sticky top-24 bg-surface border border-border rounded-2xl overflow-hidden transition-transform duration-300">
+                            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                                <h3 className="text-xs font-semibold tracking-wider text-fg uppercase">You Might Also Like</h3>
+                                {recommendations.length > 0 && <span className="text-[10px] font-semibold text-accent bg-accent/10 px-2 py-0.5 rounded-full">{recommendations.length}</span>}
                             </div>
-                            <div className="flex flex-col divide-y divide-[#0d0d0d] overflow-y-auto" style={{ maxHeight: 'calc(100vh - 160px)' }}>
+                            <div className="flex flex-col divide-y divide-border overflow-y-auto scrollbar-hide" style={{ maxHeight: 'calc(100vh - 160px)' }}>
                                 {recommendationsLoading ? (
-                                    <div className="py-12 flex flex-col items-center justify-center gap-2">
-                                        <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Loading...</span>
+                                    <div className="py-10 flex flex-col items-center justify-center gap-2">
+                                        <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                                        <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">Loading...</span>
                                     </div>
                                 ) : recommendations.length === 0 ? (
-                                    <div className="py-12 text-center text-xs text-gray-600 font-bold uppercase tracking-widest">No recommendations found</div>
+                                    <div className="py-10 text-center text-xs text-muted font-semibold uppercase tracking-wider">No recommendations</div>
                                 ) : (
                                     recommendations.map((rec) => (
-                                        <a key={rec.id} href={`/anime/${rec.id}`} onClick={(e) => { e.preventDefault(); navigate(`/anime/${rec.id}`); }} className="flex gap-3 p-3 hover:bg-[#0a0a0a] transition-colors cursor-pointer group">
-                                            <div className="relative w-[75px] h-[102px] shrink-0 rounded-md overflow-hidden border border-[#1a1a1a] group-hover:border-blue-500/40">
-                                                <img src={rec.coverImage.large} alt={rec.title.english || rec.title.romaji} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                        <a key={rec.id} href={`/anime/${rec.id}`} onClick={(e) => { e.preventDefault(); navigate(`/anime/${rec.id}`); }} className="flex gap-3 p-3 hover:bg-bg transition-colors cursor-pointer group">
+                                            <div className="relative w-[70px] h-[96px] shrink-0 rounded-md overflow-hidden border border-border">
+                                                <img src={rec.coverImage.large} alt={rec.title.english || rec.title.romaji} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                             </div>
                                             <div className="flex flex-col justify-between flex-1 min-w-0 py-0.5">
                                                 <div>
-                                                    <h4 className="text-[11px] font-bold text-gray-200 group-hover:text-blue-400 transition-colors line-clamp-2 leading-snug mb-2">{rec.title.english || rec.title.romaji}</h4>
-                                                    <span className="text-[9px] font-black bg-[#111] text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-wider">{rec.type}</span>
+                                                    <h4 className="text-[11px] font-medium text-muted group-hover:text-fg transition-colors line-clamp-2 leading-snug mb-1.5">{rec.title.english || rec.title.romaji}</h4>
+                                                    <span className="text-[8px] font-semibold bg-surface text-muted px-1.5 py-0.5 rounded uppercase tracking-wider">{rec.type}</span>
                                                 </div>
-                                                {rec.averageScore && (
-                                                    <div className="flex items-center gap-1 mt-2">
-                                                        <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
-                                                        <span className="text-[10px] font-black text-gray-400">{rec.averageScore}</span>
-                                                    </div>
-                                                )}
+                                                {rec.averageScore && <div className="flex items-center gap-1 mt-1.5"><Star className="w-3 h-3 text-yellow-500 fill-yellow-500" /><span className="text-[10px] font-semibold text-muted">{rec.averageScore}</span></div>}
                                             </div>
                                         </a>
                                     ))

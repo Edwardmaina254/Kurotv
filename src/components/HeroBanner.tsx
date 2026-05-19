@@ -1,4 +1,3 @@
-// src/components/HeroBanner.tsx
 import { Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,79 +16,70 @@ export default function HeroBanner({ anime, currentIndex, total, onNext, onPrev,
   if (!anime) return null;
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-[#040404] group flex flex-col justify-center">
-      {/* 🖼️ HIGH FIDELITY PANORAMIC ART: Scales content cleanly with soft transition zooms */}
+    <div className="relative w-full h-full overflow-hidden bg-bg parallax-container group">
+      {/* Blurred background layer — Animekai-style: fills edges when aspect ratio doesn't match */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden">
+        <img
+          src={anime.bannerImage || anime.image}
+          alt=""
+          className="w-full h-full object-cover object-center scale-110 blur-2xl opacity-60"
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Foreground image — top-aligned to show faces, not bodies */}
       <img
         src={anime.bannerImage || anime.image}
         alt={anime.title}
-        className="absolute inset-0 w-full h-full object-cover object-top opacity-100 transition-opacity duration-1000 animate-in fade-in zoom-in-105 duration-[3000ms]"
+        className="absolute inset-0 w-full h-full object-cover object-top parallax-bg"
       />
 
-      {/* 🔥 PREMIUM GRADIENT MATRIX: Dual-directional multi-stops ensuring text reads beautifully over detailed frames */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#040404] via-[#040404]/70 to-transparent z-10" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#040404] via-transparent via-[#040404]/20 to-[#040404]/40 z-10" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent z-10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
 
-      {/* Balanced layout structure perfectly mapped for maximum desktop scannability */}
-      <div className="relative z-20 w-full flex flex-col justify-center px-12 max-w-4xl pt-16 pb-6 my-auto">
+      <div className="relative z-20 w-full flex flex-col justify-center px-10 max-w-3xl pt-16 pb-6 my-auto h-full">
+        <div data-reveal className="mb-6">
+          <span className="inline-block bg-accent/15 text-accent text-[10px] font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-4">
+            {anime.subOrDub || "SUB | DUB"}
+          </span>
+        </div>
 
-        <h1 className="text-4xl md:text-[52px] font-black mb-4 leading-[1.15] text-white drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)] tracking-tight font-['Oswald'] uppercase animate-in fade-in slide-in-from-left-8 duration-700 line-clamp-2 shrink-0 pb-1">
+        <h1 data-reveal data-reveal-delay="100" className="text-3xl md:text-[48px] font-bold mb-4 leading-[1.05] text-fg tracking-tight font-display line-clamp-2">
           {anime.title}
         </h1>
 
-        <div className="flex items-center gap-4 mb-6 animate-in fade-in slide-in-from-left-6 duration-700 delay-200 shrink-0">
-          <span className="bg-blue-600 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-600/50">
-            {anime.subOrDub || "SUB | DUB"}
-          </span>
-          <span className="text-gray-200 font-bold text-xs tracking-wide bg-[#040404]/40 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
-            Rating: {anime.rating || "85"}%
-          </span>
-        </div>
-
-        <p className="text-gray-200 text-sm mb-6 line-clamp-3 leading-relaxed max-w-xl font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] animate-in fade-in slide-in-from-left-4 duration-700 delay-300 shrink-0">
-          {anime.description?.replace(/<[^>]*>/g, '') || "Experience the epic journey on KuroTV."}
+        <p data-reveal data-reveal-delay="200" className="text-fg/80 text-sm mb-6 line-clamp-3 leading-relaxed max-w-xl">
+          {anime.description?.replace(/<[^>]*>/g, '') || ""}
         </p>
 
-        <div className="flex items-center gap-4 pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-700 delay-500 shrink-0">
+        <div data-reveal data-reveal-delay="300" className="flex items-center gap-3">
           <button
             onClick={() => navigate(`/anime/${anime.id}`)}
-            className="bg-blue-600 hover:bg-blue-500 text-white font-black px-10 py-4 rounded-xl transition-all shadow-[0_15px_30px_-10px_rgba(59,130,246,0.6)] uppercase tracking-[0.2em] text-xs font-['Oswald'] tracking-widest cursor-pointer"
+            className="bg-accent hover:bg-accent-dim text-white font-semibold px-8 py-3 rounded-xl transition-all text-xs uppercase tracking-wider cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
           >
             Watch Now
           </button>
-          <button className="bg-[#040404]/40 hover:bg-[#040404]/60 text-white p-4 rounded-xl backdrop-blur-2xl border border-white/10 transition-all cursor-pointer">
-            <Bookmark className="w-5 h-5 fill-current text-blue-500" />
+          <button className="bg-surface border border-border hover:border-muted text-muted hover:text-fg p-3 rounded-xl transition-all cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shadow-sm">
+            <Bookmark className="w-4 h-4" />
           </button>
         </div>
 
-        {/* INTERACTIVE INDICATOR DOTS */}
-        <div className="flex items-center gap-4 mt-8 pointer-events-auto z-30 shrink-0">
-          <div className="flex gap-1.5 flex-wrap max-w-md">
-            {Array.from({ length: total }).map((_, i) => (
-              <div
-                key={i}
-                onClick={() => onSelect && onSelect(i)}
-                className={`h-1.5 rounded-full transition-all duration-700 shadow-lg cursor-pointer hover:bg-blue-400 ${i === currentIndex ? 'w-8 bg-blue-600 shadow-blue-600/50' : 'w-2 bg-white/20'
-                  }`}
-              />
-            ))}
-          </div>
+        <div data-reveal data-reveal-delay="400" className="flex items-center gap-2 mt-8">
+          {Array.from({ length: total }).map((_, i) => (
+            <div
+              key={i}
+              onClick={() => onSelect && onSelect(i)}
+              className={`h-1.5 rounded-full transition-all duration-500 cursor-pointer ${i === currentIndex ? 'w-8 bg-accent' : 'w-1.5 bg-border hover:bg-muted'}`}
+            />
+          ))}
         </div>
       </div>
 
-      {/* MANUAL ARROW CONTROLS */}
-      <div className="absolute bottom-8 right-12 z-30 flex items-center gap-2 pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-        <button
-          onClick={onPrev}
-          className="w-10 h-10 rounded-xl bg-[#040404]/60 backdrop-blur-md border border-white/10 hover:bg-blue-600 hover:border-blue-500 text-white flex items-center justify-center transition-all cursor-pointer shadow-lg"
-          aria-label="Previous anime"
-        >
+      <div className="absolute bottom-6 right-6 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <button onClick={onPrev} className="w-11 h-11 rounded-xl bg-surface/70 backdrop-blur-md border border-border hover:border-accent text-muted hover:text-accent flex items-center justify-center transition-all cursor-pointer hover:scale-110 active:scale-95 shadow-lg" aria-label="Previous">
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <button
-          onClick={onNext}
-          className="w-10 h-10 rounded-xl bg-[#040404]/60 backdrop-blur-md border border-white/10 hover:bg-blue-600 hover:border-blue-500 text-white flex items-center justify-center transition-all cursor-pointer shadow-lg"
-          aria-label="Next anime"
-        >
+        <button onClick={onNext} className="w-11 h-11 rounded-xl bg-surface/70 backdrop-blur-md border border-border hover:border-accent text-muted hover:text-accent flex items-center justify-center transition-all cursor-pointer hover:scale-110 active:scale-95 shadow-lg" aria-label="Next">
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>

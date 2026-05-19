@@ -1,7 +1,7 @@
 // src/services/consumet.ts
 
-// Dedicated KuroTV port for your local backend
-const CONSUMET_URL = `https://kurotv-production-9a26.up.railway.app/anime/zoro`;
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+const CONSUMET_URL = `${API_BASE}/anime/zoro`;
 
 export interface AnimeResult {
   id: string;
@@ -57,7 +57,7 @@ export const consumetApi = {
 
   async getAiringSchedule(page: number = 1): Promise<AnimeResult[]> {
     try {
-      const response = await fetch(`${CONSUMET_URL}/schedule?page=${page}`);
+      const response = await fetch(`${CONSUMET_URL}/recent-episodes?page=${page}`);
       if (!response.ok) throw new Error(`Failed: ${response.status}`);
       const data = await response.json();
       return (data.results || []).map((anime: any) => ({
