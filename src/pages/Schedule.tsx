@@ -34,13 +34,16 @@ export default function Schedule() {
                 const startUnix = Math.floor(targetDate.getTime() / 1000);
                 const endUnix = startUnix + (24 * 60 * 60) - 1;
 
-                const query = `query ($start: Int, $end: Int) { Page(page: 1, perPage: 150) { airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { airingAt episode media { id title { english romaji } coverImage { extraLarge } type } } } }`;
+                const query = `query ($start: Int, $end: Int) { Page(page: 1, perPage: 150) { airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { airingAt episode media { id title { english romaji } coverImage { extraLarge } type isAdult } } } }`;
                 const res = await fetch('https://graphql.anilist.co', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ query, variables: { start: startUnix, end: endUnix } })
                 });
                 const json = await res.json();
-                const formatted = (json?.data?.Page?.airingSchedules || []).map((item: any) => ({
+                const BANNED_ANIME_IDS = ['209940', '196840', '210234', '179950', '181284'];
+                const formatted = (json?.data?.Page?.airingSchedules || [])
+                    .filter((item: any) => item?.media?.isAdult === false && !BANNED_ANIME_IDS.includes(item?.media?.id?.toString()))
+                    .map((item: any) => ({
                     id: item?.media?.id?.toString() || '', title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
                     image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV",
                     episode: item?.episode || 1, airingAt: item?.airingAt || 0

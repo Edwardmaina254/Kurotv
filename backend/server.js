@@ -80,7 +80,7 @@ console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online!");
 const CACHE = { trending: null, recent: null, schedule: null };
 const NODE_CACHE = new Map();
 
-const BANNED_ANIME_IDS = ['209940', '196840', '210234', '179950', '181284', '186497'];
+const BANNED_ANIME_IDS = ['209940', '196840', '210234', '179950', '181284'];
 
 const getCache = (key) => NODE_CACHE.get(key);
 const setCache = (key, data, ttlHours = 12) => {
