@@ -89,7 +89,16 @@ export default function Navbar() {
       setIsSearching(true);
       setShowDropdown(true);
       try {
-        const gqlQuery = `query ($search: String) { Page(page: 1, perPage: 5) { media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id title { english romaji } coverImage { extraLarge } type averageScore } } }`;
+        // 🔥 ADDED: isAdult: false
+        const gqlQuery = `
+        query ($search: String) {
+          Page(page: 1, perPage: 5) {
+            media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+              id title { english romaji } coverImage { extraLarge } type averageScore
+            }
+          }
+        }
+      `;
         const alResponse = await fetch('https://graphql.anilist.co', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },

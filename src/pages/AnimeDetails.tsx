@@ -426,10 +426,11 @@ export default function AnimeDetails() {
                 const query = `
                     query($id: Int) {
                         Media(id: $id, type: ANIME) {
-                            recommendations(page: 1, perPage: 12) {
+                            recommendations(page: 1, perPage: 15) {
                                 nodes {
                                     mediaRecommendation {
-                                        id title { english romaji } coverImage { large } averageScore type
+                                        # 🔥 Added isAdult here so we can read it
+                                        id title { english romaji } coverImage { large } averageScore type isAdult
                                     }
                                 }
                             }
@@ -445,7 +446,13 @@ export default function AnimeDetails() {
                 if (!res.ok) throw new Error("Rate Limited");
                 const data = await res.json();
                 const nodes = data?.data?.Media?.recommendations?.nodes || [];
-                setRecommendations(nodes.map((n: any) => n.mediaRecommendation).filter((r: any) => r && r.id.toString() !== id));
+                
+                // 🔥 Filtered out anything where isAdult is true
+                setRecommendations(nodes
+                    .map((n: any) => n.mediaRecommendation)
+                    .filter((r: any) => r && r.id.toString() !== id && r.isAdult !== true)
+                    .slice(0, 12)
+                );
             } catch (e) {
                 setRecommendations([]);
             } finally {

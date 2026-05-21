@@ -80,7 +80,7 @@ console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online!");
 const CACHE = { trending: null, recent: null, schedule: null };
 const NODE_CACHE = new Map();
 
-const BANNED_ANIME_IDS = ['209940'];
+const BANNED_ANIME_IDS = ['209940', '196840', '210234', '179950', '181284', '186497'];
 
 const getCache = (key) => NODE_CACHE.get(key);
 const setCache = (key, data, ttlHours = 12) => {
@@ -133,8 +133,9 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
   if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
 
   try {
+    // 🔥 ADDED: isAdult: false
     const query = `
-      query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
+      query { Page(page: 1, perPage: 20) { media(sort: TRENDING_DESC, type: ANIME, status: RELEASING, isAdult: false) { 
         id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status 
       } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
@@ -155,13 +156,18 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
   if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
 
   try {
+    // 🔥 We fetch isAdult here, and filter it out in the JS mapping below
     const query = `
-      query { Page(page: 1, perPage: 30) { airingSchedules(notYetAired: false, sort: TIME_DESC) { 
-        episode media { id title { english romaji } coverImage { extraLarge } type } 
+      query { Page(page: 1, perPage: 40) { airingSchedules(notYetAired: false, sort: TIME_DESC) { 
+        episode media { id title { english romaji } coverImage { extraLarge } type isAdult } 
       } } }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
-    const rawList = (json?.data?.Page?.airingSchedules || []).map(item => ({
+    
+    // 🔥 ADDED: .filter(item => item?.media?.isAdult === false)
+    const rawList = (json?.data?.Page?.airingSchedules || [])
+      .filter(item => item?.media?.isAdult === false)
+      .map(item => ({
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
       title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));

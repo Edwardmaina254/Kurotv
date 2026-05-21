@@ -79,7 +79,26 @@ export default function Search() {
                 else if (sort === 'score') variables.sort = ["SCORE_DESC", "TRENDING_DESC"];
                 else variables.sort = ["TRENDING_DESC"];
 
-                const queryStr = `query ($page: Int, $perPage: Int, $search: String, $genre: String, $format: MediaFormat, $sort: [MediaSort]) { Page(page: $page, perPage: $perPage) { pageInfo { hasNextPage } media(search: $search, genre: $genre, format: $format, type: ANIME, sort: $sort) { id title { english romaji } coverImage { extraLarge } type status averageScore episodes genres } } }`;
+                // 🔥 ADDED isAdult: false inside the media arguments
+                const queryStr = `
+                    query ($page: Int, $perPage: Int, $search: String, $genre: String, $format: MediaFormat, $sort: [MediaSort]) {
+                        Page(page: $page, perPage: $perPage) {
+                            pageInfo {
+                                hasNextPage
+                            }
+                            media(search: $search, genre: $genre, format: $format, type: ANIME, sort: $sort, isAdult: false) {
+                                id
+                                title { english romaji }
+                                coverImage { extraLarge }
+                                type
+                                status
+                                averageScore
+                                episodes
+                                genres
+                            }
+                        }
+                    }
+                `;
                 const res = await fetch('https://graphql.anilist.co', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ query: queryStr, variables })
