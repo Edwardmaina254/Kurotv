@@ -471,7 +471,7 @@ export default function AnimeDetails() {
 
         if (targetMal && activeEpisode) {
             const epNum = parseInt(activeEpisode.number.toString());
-            fetch(`https://api.aniskip.com/v2/skip-times/${targetMal}/${epNum}?types=op&types=ed&episodeLength=0`)
+            fetch(`https://api.aniskip.com/v2/skip-times/${targetMal}/${epNum}?types[]=op&types[]=ed`)
                 .then(res => res.json())
                 .then(data => {
                     if (data.found) {
@@ -686,7 +686,16 @@ export default function AnimeDetails() {
             hls.on(Hls.Events.MEDIA_ATTACHED, () => { hls!.loadSource(streamData.url); });
 
             hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-                setQualities(data.levels.map((level, index) => ({ height: level.height, level: index })).reverse());
+                const parsedQualities = data.levels.map((level, index) => ({ height: level.height, level: index })).reverse();
+                setQualities(parsedQualities);
+                
+                // 🔥 FORCE HIGHEST QUALITY: Stop Hls.js from auto-downgrading
+                if (parsedQualities.length > 0) {
+                    const highestQuality = parsedQualities[0].level;
+                    hls!.currentLevel = highestQuality;
+                    setCurrentQuality(highestQuality);
+                }
+                
                 restoreProgress();
                 video.play().catch(e => console.warn("Play interrupted:", e));
             });
@@ -985,10 +994,10 @@ export default function AnimeDetails() {
                                         {streamData.isIframe ? (
                                             <iframe
                                                 src={streamData.url}
-                                                className="w-full h-full border-none bg-black"
-                                                allow="autoplay; encrypted-media; fullscreen"
+                                                className="w-full h-full border-0 absolute inset-0 z-10 bg-black"
                                                 allowFullScreen
-                                            />
+                                                allow="autoplay; encrypted-media"
+                                            ></iframe>
                                         ) : (
                                             <>
                                                 <video

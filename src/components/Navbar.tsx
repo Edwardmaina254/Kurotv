@@ -174,7 +174,21 @@ export default function Navbar() {
         <div className="flex-1 max-w-xl mx-6 relative" ref={dropdownRef}>
           <form onSubmit={handleSearch} className={`flex items-center w-full border rounded-xl px-3 h-10 transition-all duration-300 ${scrolled ? 'bg-bg border-border focus-within:border-muted' : 'bg-surface/60 border-border/30 focus-within:border-muted backdrop-blur-sm'}`}>
             <Search className="w-3.5 h-3.5 text-muted shrink-0" />
-            <input type="text" placeholder="Search anime..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => { if (searchQuery.trim() && liveResults.length > 0) setShowDropdown(true); }} className="bg-transparent border-none outline-none text-sm w-full px-2.5 placeholder-muted text-fg" />
+            <input 
+                type="text" 
+                placeholder="Search anime..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                onFocus={() => { if (searchQuery.trim() && liveResults.length > 0) setShowDropdown(true); }} 
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchQuery.trim().length > 0) {
+                        e.preventDefault();
+                        navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                        setShowDropdown(false);
+                    }
+                }}
+                className="bg-transparent border-none outline-none text-xs font-bold text-fg placeholder-muted w-full px-2.5" 
+            />
             {isSearching && <Loader2 className="w-3.5 h-3.5 text-accent animate-spin shrink-0" />}
             <button type="button" onClick={() => { setShowDropdown(false); navigate('/search'); }} className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted hover:text-accent transition-colors shrink-0 border-l border-border/50 pl-3 ml-1 cursor-pointer">
               <Filter className="w-3.5 h-3.5" />
