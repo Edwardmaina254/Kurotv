@@ -379,33 +379,52 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const executeNativePipelineFallback = async (fallbackAnimeId, fallbackEpNum) => {
     console.log(`[WATCH] Invoking local fallover processing on segment: ${fallbackAnimeId}, Ep: ${fallbackEpNum}`);
     
-    let targetSlug = null;
+    const STATIC_NATIVE_MAP = {
+      "186497": "the-ramparts-of-ice", "202381": "dr-stone-science-future", "199221": "marriagetoxin", 
+      "21": "one-piece",
+      "5114": "fullmetal-alchemist-brotherhood",
+      "11061": "hunter-x-hunter-2011",
+      "20958": "attack-on-titan-season-2", "99147": "attack-on-titan-season-3", "104578": "attack-on-titan-season-3-part-2",
+      "110277": "attack-on-titan-final-season", "131681": "attack-on-titan-final-season-part-2", "142856": "attack-on-titan-final-season-the-final-chapters",
+      "101922": "demon-slayer-kimetsu-no-yaiba", "127230": "demon-slayer-kimetsu-no-yaiba-mugen-train-arc", "121031": "demon-slayer-kimetsu-no-yaiba-entertainment-district-arc",
+      "128851": "demon-slayer-kimetsu-no-yaiba-swordsmith-village-arc", "142329": "demon-slayer-kimetsu-no-yaiba-hashira-training-arc",
+      "30276": "one-punch-man", "101759": "one-punch-man-season-2", "108465": "mushoku-tensei-jobless-reincarnation",
+      "133632": "mushoku-tensei-jobless-reincarnation-season-2", "145139": "mushoku-tensei-jobless-reincarnation-season-2-part-2",
+      "150672": "mashle-magic-and-muscles", "163132": "mashle-magic-and-muscles-season-2", "269": "bleach",
+      "41461": "bleach-thousand-year-blood-war", "145064": "bleach-thousand-year-blood-war-part-2", "166922": "bleach-thousand-year-blood-war-part-3"
+    };
+
+    let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] || null;
     const malId = req.query.malId;
 
-    try {
-        console.log(`[WATCH] Requesting universal mapping for ID ${fallbackAnimeId}...`);
-        
-        // 🔥 FIX 2: Corrected MalSync API endpoints. No more 404s.
-        let syncUrl = `https://api.malsync.moe/anilist/anime/${fallbackAnimeId}`;
-        if (malId && malId !== 'undefined' && malId !== 'null') {
-            syncUrl = `https://api.malsync.moe/mal/anime/${malId}`;
-        }
+    if (!targetSlug) {
+        try {
+            console.log(`[WATCH] Requesting universal mapping for ID ${fallbackAnimeId}...`);
             
-        const syncRes = await timeoutPromise(fetch(syncUrl), 5000);
-        
-        if (syncRes.ok) {
-            const syncData = await syncRes.json();
-            const gogoSites = syncData?.Sites?.Gogoanime;
-            
-            if (gogoSites) {
-                const slugs = Object.keys(gogoSites);
-                // Prioritize subbed slugs over dubs
-                targetSlug = slugs.find(s => !s.toLowerCase().includes('dub')) || slugs[0];
-                console.log(`[WATCH] Mapped to exact internal slug: ${targetSlug}`);
+            // 🔥 FIX 2: Corrected MalSync API endpoints. No more 404s.
+            let syncUrl = `https://api.malsync.moe/anilist/anime/${fallbackAnimeId}`;
+            if (malId && malId !== 'undefined' && malId !== 'null') {
+                syncUrl = `https://api.malsync.moe/mal/anime/${malId}`;
             }
+                
+            const syncRes = await timeoutPromise(fetch(syncUrl), 5000);
+            
+            if (syncRes.ok) {
+                const syncData = await syncRes.json();
+                const gogoSites = syncData?.Sites?.Gogoanime;
+                
+                if (gogoSites) {
+                    const slugs = Object.keys(gogoSites);
+                    // Prioritize subbed slugs over dubs
+                    targetSlug = slugs.find(s => !s.toLowerCase().includes('dub')) || slugs[0];
+                    console.log(`[WATCH] Mapped to exact internal slug: ${targetSlug}`);
+                }
+            }
+        } catch (e) {
+            console.warn("[WATCH] MalSync external mapping failed.");
         }
-    } catch (e) {
-        console.warn("[WATCH] MalSync external mapping failed.");
+    } else {
+        console.log(`[WATCH] Found static mapping for ID ${fallbackAnimeId}: ${targetSlug}`);
     }
 
     if (!targetSlug) {
