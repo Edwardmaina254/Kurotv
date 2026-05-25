@@ -9,11 +9,12 @@ import { createDecipheriv, createHash } from 'crypto';
 import { Readable } from 'stream';
 import 'dotenv/config';
 
+// 🔥 GLOBAL TLS OVERRIDE
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
-const { META, ANIME } = consumet;
+const { META } = consumet;
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -43,7 +44,7 @@ app.use('/anime/', rateLimit({ windowMs: 15*60*1000, max: 250, standardHeaders: 
 
 const anilist = new META.Anilist();
 const ANILIST_API = 'https://graphql.anilist.co';
-console.log("✅ KuroTV Backend: Hyper-Accelerated Streaming Engine Online! (Security: HIGH)");
+console.log("✅ KuroTV Backend: Stable Streaming Engine Online! (Security: HIGH)");
 
 const NODE_CACHE = new Map();
 const BANNED_ANIME_IDS = ['209940'];
@@ -52,12 +53,14 @@ const setCache = (key, data, ttlHours = 12) => {
   NODE_CACHE.set(key, data);
   setTimeout(() => NODE_CACHE.delete(key), ttlHours * 60 * 60 * 1000);
 };
+
 const timeoutPromise = (promise, ms) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms);
   promise.then(v => { clearTimeout(timer); resolve(v); }).catch(e => { clearTimeout(timer); reject(e); });
 });
+
 const fetchWithBackoff = async (url, options, maxRetries = 2) => {
-  const finalOptions = { ...options, headers: { ...options?.headers, 'User-Agent': 'KuroTV/1.0 (Performance Gateway)', 'Accept': 'application/json' } };
+  const finalOptions = { ...options, headers: { ...options?.headers, 'User-Agent': 'KuroTV/1.0', 'Accept': 'application/json' } };
   for (let i = 0; i < maxRetries; i++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -289,66 +292,65 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       });
       clearTimeout(epListTimeout);
       if (epListRes.ok) { epListData=await epListRes.json(); setCache(epListCacheKey,epListData,12); }
-    } else {
-      console.log(`[WATCH] Loading episode mappings from internal memory cache for ID: ${requestedAnimeId} ⚡`);
     }
 
     if (epListData) {
-      const targetParsedNum=parseInt(epNum,10);
-      let extractedWatchPath=null; let finalStreamPayload=null;
+      let extractedWatchPath = null; 
+      let finalStreamPayload = null;
+      let backupIframePayload = null;
+      let backupIframePath = null;
+
       const availableProviders = epListData?.providers || {};
       
-      // 🔥 FIX 1: Only race providers that ACTUALLY have this specific episode number
-      const providerHasEpisode = (pKey) => {
-          const eps = availableProviders[pKey]?.episodes?.[lang] || availableProviders[pKey]?.episodes?.['sub'] || [];
-          return eps.some(e => parseInt(e.number, 10) === targetParsedNum);
-      };
+      // 🔥 THE FIX: Removed strict episode filtering and restored the stable sequential loop
+      const preferred = ['zoro', 'ally', 'arc', 'jet', 'telli'];
+      const allKeys = Object.keys(availableProviders).filter(k => k !== 'kiwi');
+      const providerKeys = [...new Set([...preferred, ...allKeys])].filter(k => availableProviders[k]);
 
-      // Filter out 'kiwi' and any providers that are empty
-      const validKeys = Object.keys(availableProviders).filter(k => k !== 'kiwi' && providerHasEpisode(k));
-      
-      // Prioritize the best ones, but ONLY if they survived the filter above
-      const preferred = ['zoro', 'ally', 'arc', 'jet'];
-      let providerKeys = [...new Set([...preferred.filter(k => validKeys.includes(k)), ...validKeys])].slice(0, 3);
+      for (const pKey of providerKeys) {
+        const providerEps = availableProviders[pKey]?.episodes?.[lang] || availableProviders[pKey]?.episodes?.['sub'] || [];
+        const matchedEp = providerEps.find(e => parseInt(e.number, 10) === parseInt(epNum, 10));
 
-      const fetchStreamForProvider = async (pKey) => {
-        const providerEps=availableProviders[pKey]?.episodes?.[lang]||availableProviders[pKey]?.episodes?.['sub']||[];
-        const matchedEp=providerEps.find(e=>parseInt(e.number,10)===targetParsedNum);
-        if (!matchedEp?.id) throw new Error("No mapping");
-        const cleanPath=matchedEp.id.startsWith('/')?matchedEp.id.slice(1):matchedEp.id;
-        const controller=new AbortController();
-        const timeout=setTimeout(()=>controller.abort(),4500);
-        const res=await fetch(`${MIRURO_API_BASE}/${cleanPath}`,{
-          headers:{'Accept':'application/json','User-Agent':'KuroTV-Gateway/6.0','Referer':'https://www.miruro.tv/','Origin':'https://www.miruro.tv'},
-          signal:controller.signal
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error("Bad response");
-        const payload=await res.json();
-        if (!payload?.streams?.length) throw new Error("No streams");
-        return { path:cleanPath, payload, provider:pKey };
-      };
+        if (matchedEp?.id) {
+          console.log(`[WATCH] Attempting extraction from '${pKey}'...`);
+          const cleanPath = matchedEp.id.startsWith('/') ? matchedEp.id.slice(1) : matchedEp.id;
 
-      try {
-        console.log(`[WATCH] Racing ${providerKeys.length} providers with ep ${targetParsedNum} mapped: [${providerKeys.join(', ')}]`);
-        const results=await Promise.allSettled(providerKeys.map(key=>fetchStreamForProvider(key)));
-        const validExtractions=results.filter(r=>r.status==='fulfilled').map(r=>r.value);
+          try {
+            const streamController = new AbortController();
+            const streamTimeout = setTimeout(() => streamController.abort(), 6000); // 6s timeout
+            const streamRes = await fetch(`${MIRURO_API_BASE}/${cleanPath}`, {
+              headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/7.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
+              signal: streamController.signal
+            });
+            clearTimeout(streamTimeout);
 
-        if (validExtractions.length>0) {
-          let combinedStreams=[];
-          validExtractions.forEach(ext=>{
-            if (ext.payload?.streams) combinedStreams=combinedStreams.concat(ext.payload.streams.map(s=>({...s,_providerName:ext.provider})));
-          });
-          combinedStreams.sort((a,b)=>{
-            const aIsRaw=a.type==='hls'||a.url.includes('.m3u8');
-            const bIsRaw=b.type==='hls'||b.url.includes('.m3u8');
-            if(aIsRaw&&!bIsRaw) return -1; if(!aIsRaw&&bIsRaw) return 1; return 0;
-          });
-          finalStreamPayload={ streams:combinedStreams, subtitles:validExtractions.find(e=>e.payload?.subtitles?.length>0)?.payload.subtitles||[], intro:validExtractions.find(e=>e.payload?.intro)?.payload.intro, outro:validExtractions.find(e=>e.payload?.outro)?.payload.outro };
-          extractedWatchPath=validExtractions[0].path;
-          console.log(`[WATCH] ⚡ Stream lock achieved across ${validExtractions.length} provider(s).`);
+            if (streamRes.ok) {
+              const payload = await streamRes.json();
+              if (payload?.streams?.length > 0) {
+                const hasRaw = payload.streams.some(s => s.type === 'hls' || s.url.includes('.m3u8'));
+                if (hasRaw) {
+                  extractedWatchPath = cleanPath;
+                  finalStreamPayload = payload;
+                  console.log(`[WATCH] ⚡ Success! Locked RAW stream from '${pKey}'`);
+                  break; 
+                } else if (!backupIframePayload) {
+                  console.log(`[WATCH] '${pKey}' is an IFRAME. Saving as backup...`);
+                  backupIframePath = cleanPath;
+                  backupIframePayload = payload;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[WATCH] Provider '${pKey}' timed out. Moving to next...`);
+          }
         }
-      } catch (err) { console.warn(`[WATCH] Concurrent extraction error:`, err.message); }
+      }
+
+      if (!extractedWatchPath && backupIframePayload) {
+        extractedWatchPath = backupIframePath;
+        finalStreamPayload = backupIframePayload;
+        console.log(`[WATCH] ⚠️ No RAW streams found. Falling back to saved IFRAME.`);
+      }
 
       if (extractedWatchPath && finalStreamPayload) {
         const activeStreams=finalStreamPayload.streams;
@@ -372,18 +374,26 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       }
     }
   } catch (extractorErr) {
-    console.warn(`[WATCH] Miruro microservice path dropped, mapping local fallover logic:`, extractorErr.message);
+    console.warn(`[WATCH] Miruro pipeline failed:`, extractorErr.message);
   }
 
-  // BACKUP NATIVE SCRAPER
+  // ==========================================
+  // 🔥 SAFE NATIVE SCRAPER (BYPASSES BROKEN CONSUMET GOGOANIME CRASH)
+  // ==========================================
   const executeNativePipelineFallback = async (fallbackAnimeId, fallbackEpNum) => {
     console.log(`[WATCH] Invoking local fallover processing on segment: ${fallbackAnimeId}, Ep: ${fallbackEpNum}`);
-    
     const STATIC_NATIVE_MAP = {
       "186497": "the-ramparts-of-ice", "202381": "dr-stone-science-future", "199221": "marriagetoxin", 
       "21": "one-piece",
       "5114": "fullmetal-alchemist-brotherhood",
       "11061": "hunter-x-hunter-2011",
+      "21459": "boku-no-hero-academia",
+      "98460": "boku-no-hero-academia-2nd-season",
+      "100166": "boku-no-hero-academia-3rd-season",
+      "104051": "boku-no-hero-academia-4th-season",
+      "117193": "boku-no-hero-academia-5th-season",
+      "139630": "boku-no-hero-academia-6th-season",
+      "163135": "boku-no-hero-academia-7th-season",
       "20958": "attack-on-titan-season-2", "99147": "attack-on-titan-season-3", "104578": "attack-on-titan-season-3-part-2",
       "110277": "attack-on-titan-final-season", "131681": "attack-on-titan-final-season-part-2", "142856": "attack-on-titan-final-season-the-final-chapters",
       "101922": "demon-slayer-kimetsu-no-yaiba", "127230": "demon-slayer-kimetsu-no-yaiba-mugen-train-arc", "121031": "demon-slayer-kimetsu-no-yaiba-entertainment-district-arc",
@@ -394,51 +404,17 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       "41461": "bleach-thousand-year-blood-war", "145064": "bleach-thousand-year-blood-war-part-2", "166922": "bleach-thousand-year-blood-war-part-3"
     };
 
-    let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] || null;
-    const malId = req.query.malId;
-
-    if (!targetSlug) {
-        try {
-            console.log(`[WATCH] Requesting universal mapping for ID ${fallbackAnimeId}...`);
-            
-            // 🔥 FIX 2: Corrected MalSync API endpoints. No more 404s.
-            let syncUrl = `https://api.malsync.moe/anilist/anime/${fallbackAnimeId}`;
-            if (malId && malId !== 'undefined' && malId !== 'null') {
-                syncUrl = `https://api.malsync.moe/mal/anime/${malId}`;
-            }
-                
-            const syncRes = await timeoutPromise(fetch(syncUrl), 5000);
-            
-            if (syncRes.ok) {
-                const syncData = await syncRes.json();
-                const gogoSites = syncData?.Sites?.Gogoanime;
-                
-                if (gogoSites) {
-                    const slugs = Object.keys(gogoSites);
-                    // Prioritize subbed slugs over dubs
-                    targetSlug = slugs.find(s => !s.toLowerCase().includes('dub')) || slugs[0];
-                    console.log(`[WATCH] Mapped to exact internal slug: ${targetSlug}`);
-                }
-            }
-        } catch (e) {
-            console.warn("[WATCH] MalSync external mapping failed.");
-        }
-    } else {
-        console.log(`[WATCH] Found static mapping for ID ${fallbackAnimeId}: ${targetSlug}`);
-    }
-
-    if (!targetSlug) {
-        console.warn("[WATCH] Anime unmapped. Cannot proceed with native fallback.");
-        return { error: "Unreleased or No Sources", sources: [] };
-    }
-
-    const epId = `${targetSlug}-episode-${fallbackEpNum}`;
-
+    let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] ? `${STATIC_NATIVE_MAP[fallbackAnimeId]}-episode-${fallbackEpNum}` : `${fallbackAnimeId}-episode-${fallbackEpNum}`;
+    
+    // Safely wrap the broken Consumet call so it doesn't crash the server
     try {
-      // 🔥 FIX 3: Revert to the stable `anilist` wrapper initialized at the top of your file
-      console.log(`[WATCH] Executing native extraction for: ${epId}`);
-      const rawData = await timeoutPromise(anilist.fetchEpisodeSources(epId), 10000);
+      if (!STATIC_NATIVE_MAP[fallbackAnimeId]) {
+        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 8000);
+        const actualTargetEp = (consumetInfo?.episodes || []).find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
+        if (actualTargetEp?.id) targetSlug = actualTargetEp.id;
+      }
       
+      const rawData = await timeoutPromise(anilist.fetchEpisodeSources(targetSlug), 10000);
       if (!rawData || !rawData.sources || rawData.sources.length === 0) throw new Error("Blank sources");
       
       const proxyWrappedData = {
@@ -453,10 +429,9 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       };
       
       return await enrichWithSkipTimes(proxyWrappedData, fallbackAnimeId, fallbackEpNum);
-      
     } catch (err) { 
-        console.error("[WATCH] Fallback fetch failed:", err.message);
-        return { error: "Unreleased or No Sources", sources: [] }; 
+      console.warn("[WATCH] Consumet Fallback failed gracefully:", err.message);
+      return { error: "Unreleased or No Sources", sources: [] }; 
     }
   };
 
