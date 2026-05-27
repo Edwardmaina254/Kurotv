@@ -486,7 +486,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       if (epListRes.ok) {
         epListData = await epListRes.json();
-        setCache(epListCacheKey, epListData, 12);
+        setCache(epListCacheKey, epListData, 3); // 3h: Miruro mappings can change when providers update
       }
     }
 
@@ -504,16 +504,9 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       const providerKeys = [...new Set([...preferred, ...allKeys])].filter(k => availableProviders[k]);
 
       for (const pKey of providerKeys) {
-        // ✅ FIX: Miruro stores sub episodes inconsistently — some providers only have 'dub',
-        // some only 'sub', some 'raw'. Dub always worked because episodes['dub'] is consistently
-        // populated. Sub failed because episodes['sub'] was missing with no fallback to other keys.
-        // Now: try requested lang first, then sub, dub, raw, then whatever key exists.
-        const epsByLang = availableProviders[pKey]?.episodes || {};
-        const providerEps = epsByLang[lang] ||
-                            epsByLang['sub'] ||
-                            epsByLang['dub'] ||
-                            epsByLang['raw'] ||
-                            Object.values(epsByLang)[0] || [];
+        const providerEps = availableProviders[pKey]?.episodes?.[lang] || 
+                            availableProviders[pKey]?.episodes?.['sub'] || 
+                            availableProviders[pKey]?.episodes?.['raw'] || [];
                             
         const matchedEp = providerEps.find(e => parseInt(e.number, 10) === parseInt(epNum, 10));
 
@@ -576,7 +569,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           outro:finalStreamPayload?.outro?.start?{start:finalStreamPayload.outro.start,end:finalStreamPayload.outro.end}:null
         };
         const enrichedPayload=await enrichWithSkipTimes(finalPayload,requestedAnimeId,epNum);
-        setCache(cacheKey,enrichedPayload);
+        // ✅ FIX: Only cache successful responses with actual sources.
+        // M3U8 URLs from MegaCloud expire in ~6h, so cap TTL at 2h to prevent
+        // Railway serving stale expired URLs while localhost (fresh request) works fine.
+        if (enrichedPayload?.sources?.length > 0) {
+          setCache(cacheKey, enrichedPayload, 2);
+        }
         return res.json(enrichedPayload);
       }
     }
