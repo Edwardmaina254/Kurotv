@@ -107,6 +107,15 @@ export default function AnimeDetails() {
         playerStateRef.current = { volume, currentTime, duration, isPlaying };
     }, [volume, currentTime, duration, isPlaying]);
 
+    // 🔥 Keeps the maximize/minimize icon synced if the user presses the ESC key
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
     const primarySeason = chronologicalSeasons.find(s => s.id.toString() === id) || chronologicalSeasons[0];
 
     useEffect(() => {
@@ -1066,6 +1075,10 @@ export default function AnimeDetails() {
                                                                     </div>
                                                                 )}
                                                             </div>
+                                                            {/* 🔥 NEW FULLSCREEN BUTTON */}
+                                                            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors cursor-pointer ml-1">
+                                                                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
