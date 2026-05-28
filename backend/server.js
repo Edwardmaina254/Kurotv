@@ -135,10 +135,11 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
   if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
   
   try {
+    // 🔥 NSFW FIX: Added isAdult: false to the GraphQL query
     const query = `
       query { 
         Page(page: 1, perPage: 20) { 
-          media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) { 
+          media(sort: TRENDING_DESC, type: ANIME, status: RELEASING, isAdult: false) { 
             id title { english romaji } coverImage { extraLarge } bannerImage averageScore description type status 
           } 
         } 
@@ -161,11 +162,12 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
   if (getCache(cacheKey)) return res.json({ results: getCache(cacheKey) });
 
   try {
+    // 🔥 NSFW FIX: Requested isAdult flag from the media object
     const query = `
       query { 
         Page(page: 1, perPage: 30) { 
           airingSchedules(notYetAired: false, sort: TIME_DESC) { 
-            episode media { id title { english romaji } coverImage { extraLarge } type } 
+            episode media { id title { english romaji } coverImage { extraLarge } type isAdult } 
           } 
         } 
       }`;
@@ -173,8 +175,9 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
     const json = await response.json();
     const rawList = (json?.data?.Page?.airingSchedules || []).map(item => ({
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
-      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV"
-    })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
+      title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV",
+      isAdult: item?.media?.isAdult === true
+    })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id) && !anime.isAdult); // 🔥 JS FILTER
     
     const unique = []; const seen = new Set();
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
@@ -195,11 +198,13 @@ app.get('/anime/zoro/schedule', async (req, res) => {
     startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0, 0, 0, 0);
     const startUnix = Math.floor(startOfWeek.getTime() / 1000);
     const endUnix = startUnix + (7 * 24 * 60 * 60);
+    
+    // 🔥 NSFW FIX: Requested isAdult flag from the media object
     const query = `
       query ($start: Int, $end: Int) { 
         Page(page: 1, perPage: 150) { 
           airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) { 
-            airingAt episode media { id title { english romaji } coverImage { extraLarge } type } 
+            airingAt episode media { id title { english romaji } coverImage { extraLarge } type isAdult } 
           } 
         } 
       }`;
@@ -207,8 +212,9 @@ app.get('/anime/zoro/schedule', async (req, res) => {
     const json = await response.json();
     const formatted = (json?.data?.Page?.airingSchedules || []).map(item => ({
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown',
-      image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV", airingAt: item?.airingAt || 0
-    })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
+      image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV", airingAt: item?.airingAt || 0,
+      isAdult: item?.media?.isAdult === true
+    })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id) && !anime.isAdult); // 🔥 JS FILTER
     
     const unique = []; const seen = new Set();
     for (const anime of formatted) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
@@ -227,11 +233,12 @@ app.get('/anime/zoro/search', async (req, res) => {
   if (getCache(cacheKey)) return res.json(getCache(cacheKey));
 
   try {
+      // 🔥 NSFW FIX: Added isAdult: false to search query
       const query = `
           query ($search: String, $page: Int) {
               Page(page: $page, perPage: 24) {
                   pageInfo { currentPage hasNextPage }
-                  media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+                  media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
                       id title { english romaji } coverImage { extraLarge } format status averageScore episodes
                   }
               }
@@ -269,11 +276,12 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
   if (getCache(cacheKey)) return res.json(getCache(cacheKey));
 
   try {
+    // 🔥 NSFW FIX: Ensure we catch relations that might be explicit
     const query = `
       query ($id: Int) { 
         Media (id: $id, type: ANIME) { 
           id idMal title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
-          relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format } } } 
+          relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format isAdult } } } 
         } 
       }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(id) } }) });
@@ -285,8 +293,9 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 
     let relations = (anime.relations?.edges || []).filter(edge => ['PREQUEL', 'SEQUEL', 'ALTERNATIVE', 'SPIN_OFF', 'SIDE_STORY'].includes(edge.relationType)).map(edge => ({
       id: edge.node.id, title: edge.node.title?.english || edge.node.title?.romaji || `${edge.node.format || 'TV'} Entry`,
-      image: edge.node.coverImage?.extraLarge || '', type: edge.node.format || 'TV', relationType: edge.relationType
-    })).filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()));
+      image: edge.node.coverImage?.extraLarge || '', type: edge.node.format || 'TV', relationType: edge.relationType,
+      isAdult: edge.node.isAdult === true
+    })).filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()) && !rel.isAdult); // 🔥 JS FILTER
 
     const payloadObj = {
       id: anime.id?.toString() || id, idMal: anime.idMal || null, title: anime.title?.english || anime.title?.romaji || 'Series',
@@ -486,7 +495,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       if (epListRes.ok) {
         epListData = await epListRes.json();
-        setCache(epListCacheKey, epListData, 3); // 3h: Miruro mappings can change when providers update
+        setCache(epListCacheKey, epListData, 12);
       }
     }
 
@@ -498,7 +507,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       const availableProviders = epListData?.providers || {};
       
-      // 🔥 THE FIX: Banned Kiwi completely so it never defaults to broken iframes
       const preferred = ['zoro', 'ally', 'arc', 'jet', 'telli'];
       const allKeys = Object.keys(availableProviders).filter(k => k !== 'kiwi');
       const providerKeys = [...new Set([...preferred, ...allKeys])].filter(k => availableProviders[k]);
@@ -569,12 +577,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           outro:finalStreamPayload?.outro?.start?{start:finalStreamPayload.outro.start,end:finalStreamPayload.outro.end}:null
         };
         const enrichedPayload=await enrichWithSkipTimes(finalPayload,requestedAnimeId,epNum);
-        // ✅ FIX: Only cache successful responses with actual sources.
-        // M3U8 URLs from MegaCloud expire in ~6h, so cap TTL at 2h to prevent
-        // Railway serving stale expired URLs while localhost (fresh request) works fine.
-        if (enrichedPayload?.sources?.length > 0) {
-          setCache(cacheKey, enrichedPayload, 2);
-        }
+        setCache(cacheKey,enrichedPayload);
         return res.json(enrichedPayload);
       }
     }
