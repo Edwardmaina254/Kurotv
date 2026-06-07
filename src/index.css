@@ -91,13 +91,19 @@ body {
 }
 
 .section-title {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--fg);
   font-family: var(--font-display);
   position: relative;
   display: inline-block;
+}
+
+@media (min-width: 768px) {
+  .section-title {
+    font-size: 24px;
+  }
 }
 
 .section-title::after {

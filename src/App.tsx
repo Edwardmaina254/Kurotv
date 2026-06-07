@@ -63,13 +63,13 @@ export default function App() {
             <Route path="/admin-dashboard" element={<AdminDashboard />} />
           </Routes>
         </main>
-        <footer className="w-full border-t border-border mt-24 py-10 px-6">
-          <div className="max-w-[1500px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-muted">
-            <Link to="/home" className="text-lg font-bold tracking-tight font-display text-fg hover:text-accent transition-colors">
+        <footer className="w-full border-t border-border mt-16 md:mt-24 py-8 md:py-10 px-4 md:px-6">
+          <div className="max-w-[1500px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3 md:gap-4 text-xs text-muted">
+            <Link to="/home" className="text-base md:text-lg font-bold tracking-tight font-display text-fg hover:text-accent transition-colors">
               KURO<span className="text-accent">TV</span>
             </Link>
-            <p className="text-[11px]">This site does not store any files. All content is provided by non-affiliated third parties.</p>
-            <div className="flex items-center gap-6 text-[10px] font-semibold uppercase tracking-widest">
+            <p className="text-[10px] md:text-[11px] text-center md:text-left">This site does not store any files. All content is provided by non-affiliated third parties.</p>
+            <div className="flex items-center gap-5 md:gap-6 text-[10px] font-semibold uppercase tracking-widest">
               <Link to="/contact" className="hover:text-fg transition-colors">Request</Link>
               <Link to="/contact" className="hover:text-accent transition-colors">Contact</Link>
             </div>

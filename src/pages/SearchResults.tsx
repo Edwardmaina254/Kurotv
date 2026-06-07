@@ -52,35 +52,35 @@ export default function SearchResults() {
     }
 
     return (
-        <div className="min-h-screen pt-24 pb-16 px-4 sm:px-8">
+        <div className="min-h-screen pt-20 md:pt-24 pb-12 md:pb-16 px-4 sm:px-8">
             <div className="max-w-[1400px] mx-auto">
-                <div className="flex items-center gap-4 mb-8">
-                    <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-xl bg-surface border border-border flex items-center justify-center hover:border-muted hover:text-fg transition-all text-muted cursor-pointer shadow-sm">
-                        <ArrowLeft className="w-4 h-4" />
+                <div className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
+                    <button onClick={() => navigate(-1)} className="w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl bg-surface border border-border flex items-center justify-center hover:border-muted hover:text-fg transition-all text-muted cursor-pointer shadow-sm shrink-0">
+                        <ArrowLeft className="w-3.5 h-3.5 md:w-4 md:h-4" />
                     </button>
-                    <div>
-                        <h1 className="text-xl font-bold tracking-tight font-display">Search Results</h1>
-                        <p className="text-sm text-muted mt-0.5">Found {results.length} results for <span className="text-accent font-semibold">"{query}"</span></p>
+                    <div className="min-w-0">
+                        <h1 className="text-base md:text-xl font-bold tracking-tight font-display truncate">Search Results</h1>
+                        <p className="text-xs md:text-sm text-muted mt-0.5 truncate">Found {results.length} results for <span className="text-accent font-semibold">"{query}"</span></p>
                     </div>
                 </div>
 
                 {results.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-5">
                         {results.map((anime) => {
                             const title = anime.title.english || anime.title.romaji;
                             return (
-                                <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}`)} className="group relative rounded-xl overflow-hidden cursor-pointer aspect-[2/3] border border-border hover:border-muted transition-all bg-surface" data-reveal>
+                                <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}`)} className="group relative rounded-lg md:rounded-xl overflow-hidden cursor-pointer aspect-[2/3] border border-border hover:border-muted transition-all bg-surface" data-reveal>
                                     <img src={anime.coverImage.extraLarge} alt={title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" loading="lazy" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end pb-3 pl-3">
-                                        <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                                            <Play className="w-3.5 h-3.5 text-white ml-0.5 fill-current" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end pb-2 md:pb-3 pl-2 md:pl-3">
+                                        <div className="w-7 h-7 md:w-8 md:h-8 bg-accent rounded-full flex items-center justify-center">
+                                            <Play className="w-3 h-3 md:w-3.5 md:h-3.5 text-white ml-0.5 fill-current" />
                                         </div>
                                     </div>
-                                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                                        <h3 className="text-white text-sm font-semibold line-clamp-2 leading-tight">{title}</h3>
-                                        <div className="flex items-center justify-between mt-1.5">
-                                            <span className="text-[9px] font-semibold tracking-wider text-white/70 uppercase bg-black/30 px-1.5 py-0.5 rounded">{anime.type || "TV"}</span>
-                                            {anime.averageScore && <div className="flex items-center gap-1"><Star className="w-3 h-3 text-accent fill-accent" /><span className="text-[10px] font-medium text-white/70">{anime.averageScore}</span></div>}
+                                    <div className="absolute bottom-0 left-0 right-0 p-2 md:p-3 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                                        <h3 className="text-white text-[11px] md:text-sm font-semibold line-clamp-2 leading-tight">{title}</h3>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-[8px] md:text-[9px] font-semibold tracking-wider text-white/70 uppercase bg-black/30 px-1 md:px-1.5 py-0.5 rounded">{anime.type || "TV"}</span>
+                                            {anime.averageScore && <div className="flex items-center gap-1"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 text-accent fill-accent" /><span className="text-[9px] md:text-[10px] font-medium text-white/70">{anime.averageScore}</span></div>}
                                         </div>
                                     </div>
                                 </div>
@@ -88,9 +88,9 @@ export default function SearchResults() {
                         })}
                     </div>
                 ) : (
-                    <div className="py-20 flex flex-col items-center justify-center border border-dashed border-border rounded-2xl bg-surface">
-                        <p className="text-base font-semibold text-muted">No results found</p>
-                        <p className="text-sm text-muted mt-1">Try a different search term.</p>
+                    <div className="py-16 md:py-20 flex flex-col items-center justify-center border border-dashed border-border rounded-xl md:rounded-2xl bg-surface">
+                        <p className="text-sm md:text-base font-semibold text-muted">No results found</p>
+                        <p className="text-xs md:text-sm text-muted mt-1">Try a different search term.</p>
                     </div>
                 )}
             </div>

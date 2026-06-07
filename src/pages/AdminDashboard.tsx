@@ -27,25 +27,25 @@ export default function AdminDashboard() {
     ];
 
     return (
-        <div className="min-h-screen pt-24 pb-12 px-6 max-w-[1200px] mx-auto">
-            <div className="flex items-center justify-between border-b border-border pb-5 mb-8" data-reveal>
+        <div className="min-h-screen pt-20 md:pt-24 pb-12 px-4 md:px-6 max-w-[1200px] mx-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4 md:pb-5 mb-6 md:mb-8" data-reveal>
                 <div>
-                    <h1 className="text-xl font-bold tracking-tight font-display">KuroTV Telemetry</h1>
-                    <p className="text-xs text-muted mt-0.5">Real-time metrics & monitoring</p>
+                    <h1 className="text-lg md:text-xl font-bold tracking-tight font-display">KuroTV Telemetry</h1>
+                    <p className="text-[11px] md:text-xs text-muted mt-0.5">Real-time metrics & monitoring</p>
                 </div>
-                <button onClick={fetchMetrics} className="flex items-center gap-1.5 bg-surface border border-border hover:border-muted px-3.5 py-2 rounded-xl text-[11px] font-semibold transition-all cursor-pointer shadow-sm">
+                <button onClick={fetchMetrics} className="flex items-center gap-1.5 bg-surface border border-border hover:border-muted px-3 py-1.5 md:px-3.5 md:py-2 rounded-xl text-[10px] md:text-[11px] font-semibold transition-all cursor-pointer shadow-sm self-start">
                     <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-accent' : ''}`} /> Refresh
                 </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4" data-reveal>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4" data-reveal>
                 {cards.map((card) => (
-                    <div key={card.label} className="card p-5">
-                        <div className="flex items-center justify-between text-muted mb-3">
+                    <div key={card.label} className="card p-4 md:p-5">
+                        <div className="flex items-center justify-between text-muted mb-2 md:mb-3">
                             <span className="kicker">{card.label}</span>
-                            <card.icon className={`w-4 h-4 ${card.color}`} />
+                            <card.icon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${card.color}`} />
                         </div>
-                        <p className="text-2xl font-bold text-fg">{card.value}</p>
-                        <span className="text-[9px] text-muted font-medium tracking-wider mt-1 block">{card.sub}</span>
+                        <p className="text-xl md:text-2xl font-bold text-fg">{card.value}</p>
+                        <span className="text-[8px] md:text-[9px] text-muted font-medium tracking-wider mt-1 block">{card.sub}</span>
                     </div>
                 ))}
             </div>

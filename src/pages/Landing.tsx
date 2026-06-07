@@ -119,7 +119,7 @@ export default function Landing() {
 
                 <div className="absolute inset-0 flex transition-opacity duration-700" style={{ opacity: mosaicReady ? 1 : 0 }}>
                     {bgImages.map((img, idx) => (
-                        <div key={idx} className="flex-1 h-full relative overflow-hidden"
+                        <div key={idx} className={`flex-1 h-full relative overflow-hidden ${idx >= 4 ? 'hidden md:flex' : idx >= 2 ? 'hidden sm:flex' : ''}`}
                             style={{
                                 animation: mosaicReady ? `strip-reveal 0.7s ease forwards` : 'none',
                                 animationDelay: `${idx * 24}ms`,
@@ -132,20 +132,20 @@ export default function Landing() {
                 </div>
 
                 <div className="absolute inset-0 flex pointer-events-none">
-                    {Array.from({ length: 19 }).map((_, idx) => <div key={idx} className="flex-1 border-r border-border/20 last:border-0" />)}
+                    {Array.from({ length: 19 }).map((_, idx) => <div key={idx} className={`flex-1 border-r border-border/20 last:border-0 ${idx >= 5 ? 'hidden md:block' : idx >= 2 ? 'hidden sm:block' : ''}`} />)}
                 </div>
 
                 <div className="absolute inset-0 bg-gradient-to-b from-bg/60 via-bg/35 to-bg pointer-events-none" />
                 <div className="absolute bottom-0 left-0 right-0 h-[40%] bg-gradient-to-t from-bg via-bg/60 to-transparent pointer-events-none" />
 
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10 px-6" style={{ paddingBottom: '6vh' }}>
-                    <div className="mb-6 text-center">
-                        <span onClick={() => navigate('/home')} className="text-6xl md:text-7xl font-bold tracking-tight text-fg font-display cursor-pointer hover:opacity-80 transition-opacity">
+                    <div className="mb-4 md:mb-6 text-center">
+                        <span onClick={() => navigate('/home')} className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight text-fg font-display cursor-pointer hover:opacity-80 transition-opacity">
                             KURO<span className="text-accent">TV</span>
                         </span>
                     </div>
 
-                    <p className="text-sm text-muted mb-7 text-center max-w-md leading-relaxed font-medium">
+                    <p className="text-xs md:text-sm text-muted mb-5 md:mb-7 text-center max-w-md leading-relaxed font-medium">
                         Stream anime in 1080p — ad-free, minimal, beautiful.
                     </p>
 
@@ -185,14 +185,14 @@ export default function Landing() {
                         )}
                     </div>
 
-                    <div className="flex items-center gap-4 mt-8">
-                        <button onClick={() => navigate('/home')} className="flex items-center justify-center gap-2 bg-accent hover:bg-accent-dim text-white px-8 py-3 rounded-xl font-semibold text-xs uppercase tracking-wider transition-all hover:-translate-y-0.5 active:translate-y-0 shadow-sm hover:shadow-md cursor-pointer">
-                            Watch Now <Play className="w-3.5 h-3.5 fill-current" />
+                    <div className="flex items-center gap-4 mt-6 md:mt-8">
+                        <button onClick={() => navigate('/home')} className="flex items-center justify-center gap-2 bg-accent hover:bg-accent-dim text-white px-6 md:px-8 py-2.5 md:py-3 rounded-xl font-semibold text-[10px] md:text-xs uppercase tracking-wider transition-all hover:-translate-y-0.5 active:translate-y-0 shadow-sm hover:shadow-md cursor-pointer">
+                            Watch Now <Play className="w-3 h-3 md:w-3.5 md:h-3.5 fill-current" />
                         </button>
 
                     </div>
 
-                    <p className="text-xs text-muted mt-8 text-center max-w-lg">
+                    <p className="text-[10px] md:text-xs text-muted mt-6 md:mt-8 text-center max-w-lg">
                         <span className="font-medium">Popular: </span>
                         One Piece, Jujutsu Kaisen, Solo Leveling, Demon Slayer
                     </p>

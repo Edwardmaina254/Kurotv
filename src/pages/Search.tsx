@@ -17,12 +17,12 @@ const FilterDropdown = ({ label, value, options, onChange, isOpen, onToggle }: {
     label: string, value: string, options: { label: string, value: string }[], onChange: (val: string) => void, isOpen: boolean, onToggle: () => void
 }) => (
     <div className="relative">
-        <button onClick={onToggle} className="flex items-center justify-between min-w-[150px] bg-surface border border-border hover:border-muted hover:text-fg rounded-xl py-2 px-3.5 text-[11px] font-semibold tracking-wider text-muted transition-all cursor-pointer shadow-sm">
+        <button onClick={onToggle} className="flex items-center justify-between min-w-[130px] md:min-w-[150px] bg-surface border border-border hover:border-muted hover:text-fg rounded-lg md:rounded-xl py-1.5 md:py-2 px-2.5 md:px-3.5 text-[10px] md:text-[11px] font-semibold tracking-wider text-muted transition-all cursor-pointer shadow-sm">
             <span className="truncate pr-2">{value ? options.find(o => o.value === value)?.label || label : label}</span>
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-accent' : 'text-muted'}`} />
         </button>
         {isOpen && (
-            <div className="absolute top-[calc(100%+6px)] left-0 w-full min-w-[180px] bg-surface border border-border rounded-xl py-1.5 z-50 animate-float-in shadow-lg">
+            <div className="absolute top-[calc(100%+6px)] left-0 right-0 w-full min-w-[160px] md:min-w-[180px] bg-surface border border-border rounded-lg md:rounded-xl py-1.5 z-50 animate-float-in shadow-lg">
                 <button onClick={() => onChange('')} className={`text-left text-[11px] font-semibold px-3.5 py-2 hover:bg-bg transition-colors w-full flex items-center justify-between ${!value ? 'text-accent' : 'text-muted hover:text-fg'}`}>
                     {label} {!value && <Check className="w-3 h-3" />}
                 </button>
@@ -138,16 +138,16 @@ export default function Search() {
     };
 
     return (
-        <div className="min-h-screen pt-24 pb-16 px-6 md:px-10">
-            <div className="max-w-[1400px] mx-auto mb-8">
-                <button onClick={() => navigate('/home')} className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted hover:text-fg uppercase transition-colors mb-5 cursor-pointer">
+        <div className="min-h-screen pt-20 md:pt-24 pb-12 md:pb-16 px-4 md:px-10">
+            <div className="max-w-[1400px] mx-auto mb-6 md:mb-8">
+                <button onClick={() => navigate('/home')} className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-muted hover:text-fg uppercase transition-colors mb-4 md:mb-5 cursor-pointer">
                     <ArrowLeft className="w-3.5 h-3.5" /> Go Back
                 </button>
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5" ref={filtersRef}>
-                    <h1 className="text-2xl font-bold tracking-tight font-display">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 md:gap-5" ref={filtersRef}>
+                    <h1 className="text-xl md:text-2xl font-bold tracking-tight font-display">
                         {query ? <>Results for <span className="text-accent">"{query}"</span></> : "Discover Anime"}
                     </h1>
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 md:gap-3">
                         <FilterDropdown label="All Genres" value={genre} options={GENRES} isOpen={openDropdown === 'genre'} onToggle={() => setOpenDropdown(openDropdown === 'genre' ? null : 'genre')} onChange={(val) => updateFilter('genre', val)} />
                         <FilterDropdown label="All Types" value={format} options={FORMATS} isOpen={openDropdown === 'format'} onToggle={() => setOpenDropdown(openDropdown === 'format' ? null : 'format')} onChange={(val) => updateFilter('format', val)} />
                         <FilterDropdown label="Sort By" value={sort} options={SORTS} isOpen={openDropdown === 'sort'} onToggle={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')} onChange={(val) => updateFilter('sort', val)} />
@@ -157,38 +157,38 @@ export default function Search() {
 
             <div className="max-w-[1400px] mx-auto">
                 {results.length === 0 && !loading ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-muted bg-surface rounded-2xl border border-border">
-                        <Filter className="w-12 h-12 mb-4 opacity-20" />
-                        <h2 className="text-lg font-bold tracking-tight">No Results Found</h2>
-                        <p className="text-sm mt-2">Try adjusting your filters or search term.</p>
+                    <div className="flex flex-col items-center justify-center py-16 md:py-24 text-muted bg-surface rounded-xl md:rounded-2xl border border-border">
+                        <Filter className="w-10 h-10 md:w-12 md:h-12 mb-4 opacity-20" />
+                        <h2 className="text-base md:text-lg font-bold tracking-tight">No Results Found</h2>
+                        <p className="text-xs md:text-sm mt-2">Try adjusting your filters or search term.</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-y-10 gap-x-5">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-y-6 md:gap-y-10 gap-x-3 md:gap-x-5">
                         {results.map((anime) => (
                             <div key={anime.id} onClick={() => navigate(`/anime/${anime.id}?ep=1`)} className="group cursor-pointer" data-reveal>
-                                <div className="aspect-[2/3] bg-surface rounded-xl overflow-hidden mb-2 border border-border relative">
+                                <div className="aspect-[2/3] bg-surface rounded-lg md:rounded-xl overflow-hidden mb-1.5 md:mb-2 border border-border relative">
                                     <img src={anime.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={anime.title} />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end pb-3 pl-3">
-                                        <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                                            <Play className="w-3.5 h-3.5 text-white fill-current ml-0.5" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end pb-2 md:pb-3 pl-2 md:pl-3">
+                                        <div className="w-7 h-7 md:w-8 md:h-8 bg-accent rounded-full flex items-center justify-center">
+                                            <Play className="w-3 h-3 md:w-3.5 md:h-3.5 text-white fill-current ml-0.5" />
                                         </div>
                                     </div>
-                                    <span className="absolute top-3 right-3 bg-black/60 text-white text-[9px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">{anime.type || "TV"}</span>
+                                    <span className="absolute top-2 right-2 md:top-3 md:right-3 bg-black/60 text-white text-[8px] md:text-[9px] font-semibold px-1.5 md:px-2 py-0.5 rounded-full uppercase tracking-wider">{anime.type || "TV"}</span>
                                 </div>
-                                <h4 className="font-semibold text-xs text-fg truncate group-hover:text-accent transition-colors">{anime.title}</h4>
+                                <h4 className="font-semibold text-[11px] md:text-xs text-fg truncate group-hover:text-accent transition-colors">{anime.title}</h4>
                                 <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-[10px] text-muted font-medium flex items-center gap-1"><Star className="w-3 h-3 text-accent fill-accent" /> {anime.rating > 0 ? anime.rating : 'N/A'}</span>
+                                    <span className="text-[9px] md:text-[10px] text-muted font-medium flex items-center gap-1"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 text-accent fill-accent" /> {anime.rating > 0 ? anime.rating : 'N/A'}</span>
                                 </div>
                             </div>
                         ))}
-                        {loading && Array.from({ length: 12 }).map((_, i) => <div key={`skel-${i}`} className="aspect-[2/3] bg-border rounded-xl animate-pulse" />)}
+                        {loading && Array.from({ length: 12 }).map((_, i) => <div key={`skel-${i}`} className="aspect-[2/3] bg-border rounded-lg md:rounded-xl animate-pulse" />)}
                     </div>
                 )}
 
                 {canLoadMore && !loading && (
-                    <div className="mt-12 flex justify-center">
+                    <div className="mt-8 md:mt-12 flex justify-center">
                         <button onClick={() => setPage(p => p + 1)} disabled={isFetchingMore}
-                            className="bg-surface border border-border hover:bg-surface hover:text-fg text-muted hover:border-muted px-10 py-3 rounded-xl font-semibold text-xs tracking-wider uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer shadow-sm hover:shadow-md">
+                            className="bg-surface border border-border hover:bg-surface hover:text-fg text-muted hover:border-muted px-8 md:px-10 py-2.5 md:py-3 rounded-xl font-semibold text-[10px] md:text-xs tracking-wider uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer shadow-sm hover:shadow-md">
                             {isFetchingMore ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</> : <>Load More <ChevronDown className="w-3.5 h-3.5" /></>}
                         </button>
                     </div>
