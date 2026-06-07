@@ -499,6 +499,14 @@ export default function AnimeDetails() {
         }
     }, [malId, primarySeason, activeEpisode]);
 
+    // Domains known to block iframes — skip these sources entirely
+    const BLOCKED_IFRAME_DOMAINS = ['anidb.app', 'anidb.net', 'kwik.cx', 'kwik.si'];
+    const isBlockedSource = (source: any) => {
+        if (!source.isIframe) return false;
+        try { return BLOCKED_IFRAME_DOMAINS.some(d => new URL(source.url).hostname.includes(d)); }
+        catch { return false; }
+    };
+
     const loadSpecificSource = (source: any) => {
         const finalUrl = source.url.includes('?') ? `${source.url}&cb=${Date.now()}` : `${source.url}?cb=${Date.now()}`;
         setStreamData({
@@ -548,8 +556,11 @@ export default function AnimeDetails() {
         }
     };
 
-    const handlePlayEpisode = async (episode: Episode, parentSeasonId: string, forceMode?: 'sub' | 'dub') => {
+    // ⚡ FIX 1: Allow the function to accept a forceServer parameter
+    const handlePlayEpisode = async (episode: Episode, parentSeasonId: string, forceMode?: 'sub' | 'dub', forceServer?: string) => {
         const modeToUse = forceMode || audioMode;
+        const serverToUse = forceServer || activeServer; // Use the requested server
+
         setActiveEpisode(episode);
         setPlayingSeasonId(parentSeasonId);
         setIsFetchingStream(true);
@@ -594,7 +605,9 @@ export default function AnimeDetails() {
             const resolvedTargetMal = currentKnownMal?.toString() || STATIC_FRONTEND_MAP[parentSeasonId] || '';
 
             const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
-            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}`;
+            
+            // ⚡ FIX 2: Attach the target server to the backend API request
+            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}&server=${encodeURIComponent(serverToUse)}`;
 
             const res = await fetch(backendUrl);
             const data = await res.json();
@@ -615,7 +628,24 @@ export default function AnimeDetails() {
 
             const sourcesArray = data.sources || [];
             if (sourcesArray && sourcesArray.length > 0) {
-                const sortedSources = [...sourcesArray].sort((a, b) => {
+                // Strip known broken iframe domains before touching the player
+                const cleanSources = sourcesArray.filter((s: any) => !isBlockedSource(s));
+
+                if (cleanSources.length === 0) {
+                    // All sources were blocked iframes — auto-try next server
+                    const servers = ['Vidstreaming', 'MegaCloud', 'StreamSB'];
+                    const nextServer = servers.find(s => s !== serverToUse);
+                    console.warn(`[PLAYER] All sources blocked (anidb/kwik). Auto-switching to ${nextServer}...`);
+                    if (nextServer && activeEpisode && parentSeasonId) {
+                        setActiveServer(nextServer);
+                        handlePlayEpisode(activeEpisode, parentSeasonId, modeToUse, nextServer);
+                    } else {
+                        setStreamError("No working stream found. Try a different server.");
+                    }
+                    return;
+                }
+
+                const sortedSources = [...cleanSources].sort((a: any, b: any) => {
                     if (!a.isIframe && b.isIframe) return -1;
                     if (a.isIframe && !b.isIframe) return 1;
                     return 0;
@@ -623,7 +653,7 @@ export default function AnimeDetails() {
                 setAvailableSources(sortedSources);
                 loadSpecificSource(sortedSources[0]);
             } else {
-                setStreamError("Unroutable stream source vector array mapping.");
+                setStreamError("No stream sources returned from server.");
             }
         } catch (error) {
             console.error("Failed to fetch stream");
@@ -633,17 +663,13 @@ export default function AnimeDetails() {
         }
     };
 
+    // ⚡ FIX 3: Make the server button actually trigger a new API fetch
     const handleServerChange = (srv: string) => {
         if (srv === activeServer) return;
         setActiveServer(srv);
-        if (streamData) {
-            const currentStream = streamData;
-            setIsFetchingStream(true);
-            setStreamData(null);
-            setTimeout(() => {
-                setStreamData(currentStream);
-                setIsFetchingStream(false);
-            }, 1200);
+        if (activeEpisode && playingSeasonId) {
+            // Actually call the backend to get the new server's video links!
+            handlePlayEpisode(activeEpisode, playingSeasonId, audioMode, srv);
         }
     };
 
@@ -680,13 +706,12 @@ export default function AnimeDetails() {
         if (streamData.isM3U8 && Hls.isSupported()) {
             hls = new Hls({
                 xhrSetup: (xhr) => { xhr.withCredentials = false; },
-                // 🔥 THE NUKE SWITCH: Absolute zero tolerance for lagging servers
-                fragLoadingTimeOut: 4000,      // Kill chunk loads after 4 seconds
-                manifestLoadingTimeOut: 4000,  // Kill manifest loads after 4 seconds
-                levelLoadingTimeOut: 4000,
-                fragLoadingMaxRetry: 0,        // ZERO retries. If it fails, move on.
-                manifestLoadingMaxRetry: 0,
-                levelLoadingMaxRetry: 0,
+                fragLoadingTimeOut: 20000,
+                manifestLoadingTimeOut: 20000,
+                levelLoadingTimeOut: 20000,
+                fragLoadingMaxRetry: 4,
+                manifestLoadingMaxRetry: 4,
+                levelLoadingMaxRetry: 4,
                 enableWorker: true,
                 lowLatencyMode: true
             });

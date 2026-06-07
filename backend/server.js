@@ -436,7 +436,19 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const { episodeId } = req.params;
   const lang = req.query.lang === 'dub' ? 'dub' : 'sub';
 
-  const cacheKey = `watch-extracted-${episodeId}-${lang}`;
+  // ⚡ FIX 1: Capture requested server from frontend (default to Vidstreaming)
+  const requestedServer = req.query.server || 'Vidstreaming'; 
+  
+  // Map UI Names to Miruro Provider Keys
+  const serverMap = {
+      'Vidstreaming': 'zoro',
+      'MegaCloud': 'ally',
+      'StreamSB': 'arc'
+  };
+  const targetProviderKey = serverMap[requestedServer] || 'zoro';
+
+  // Make sure to add the server to the cache key so they don't overwrite each other!
+  const cacheKey = `watch-extracted-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -507,8 +519,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       const availableProviders = epListData?.providers || {};
       
-      const preferred = ['zoro', 'ally', 'arc', 'jet', 'telli'];
+      // ⚡ FIX 2: Push the user's requested server to the very front of the preferred array!
+      const preferred = [targetProviderKey, 'zoro', 'ally', 'arc', 'jet', 'telli'];
       const allKeys = Object.keys(availableProviders).filter(k => k !== 'kiwi');
+      
+      // Set removes duplicates, guaranteeing targetProviderKey stays at index 0
       const providerKeys = [...new Set([...preferred, ...allKeys])].filter(k => availableProviders[k]);
 
       for (const pKey of providerKeys) {
@@ -535,7 +550,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             if (streamRes.ok) {
               const payload = await streamRes.json();
               if (payload?.streams?.length > 0) {
-                const hasRaw = payload.streams.some(s => s.type === 'hls' || s.url.includes('.m3u8'));
+                // ⚡ FIX: Accept 'mp4' as a valid raw stream!
+                const hasRaw = payload.streams.some(s => s.type === 'hls' || s.url.includes('.m3u8') || s.type === 'mp4' || s.url.includes('.mp4'));
                 if (hasRaw) {
                   extractedWatchPath = cleanPath;
                   finalStreamPayload = payload;
@@ -588,58 +604,57 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   // ==========================================
   // 🔥 SAFE NATIVE SCRAPER (BYPASSES BROKEN CONSUMET GOGOANIME CRASH)
   // ==========================================
+  // ── NATIVE FALLBACK: AnimePahe → AnimeKai → Hianime ────────────────────────
+  // Runs when Miruro has no working streams. Uses AniList ID directly — no slug mapping needed.
+  // Previous fallback was broken: it passed Gogoanime slugs to a Hianime scraper instance.
   const executeNativePipelineFallback = async (fallbackAnimeId, fallbackEpNum) => {
-    console.log(`[WATCH] Invoking local fallover processing on segment: ${fallbackAnimeId}, Ep: ${fallbackEpNum}`);
-    const STATIC_NATIVE_MAP = {
-      "186497": "the-ramparts-of-ice", "202381": "dr-stone-science-future", "199221": "marriagetoxin", 
-      "21": "one-piece",
-      "5114": "fullmetal-alchemist-brotherhood",
-      "11061": "hunter-x-hunter-2011",
-      "21459": "boku-no-hero-academia",
-      "98460": "boku-no-hero-academia-2nd-season",
-      "100166": "boku-no-hero-academia-3rd-season",
-      "104051": "boku-no-hero-academia-4th-season",
-      "117193": "boku-no-hero-academia-5th-season",
-      "139630": "boku-no-hero-academia-6th-season",
-      "163135": "boku-no-hero-academia-7th-season",
-      "20958": "attack-on-titan-season-2", "99147": "attack-on-titan-season-3", "104578": "attack-on-titan-season-3-part-2",
-      "110277": "attack-on-titan-final-season", "131681": "attack-on-titan-final-season-part-2", "142856": "attack-on-titan-final-season-the-final-chapters",
-      "101922": "demon-slayer-kimetsu-no-yaiba", "127230": "demon-slayer-kimetsu-no-yaiba-mugen-train-arc", "121031": "demon-slayer-kimetsu-no-yaiba-entertainment-district-arc",
-      "128851": "demon-slayer-kimetsu-no-yaiba-swordsmith-village-arc", "142329": "demon-slayer-kimetsu-no-yaiba-hashira-training-arc",
-      "30276": "one-punch-man", "101759": "one-punch-man-season-2", "108465": "mushoku-tensei-jobless-reincarnation",
-      "133632": "mushoku-tensei-jobless-reincarnation-season-2", "145139": "mushoku-tensei-jobless-reincarnation-season-2-part-2",
-      "150672": "mashle-magic-and-muscles", "163132": "mashle-magic-and-muscles-season-2", "269": "bleach",
-      "41461": "bleach-thousand-year-blood-war", "145064": "bleach-thousand-year-blood-war-part-2", "166922": "bleach-thousand-year-blood-war-part-3"
+    console.log(`[WATCH] Native fallback: ID=${fallbackAnimeId} Ep=${fallbackEpNum}`);
+
+    const tryEngine = async (engine, engineName, referer) => {
+      const cacheKey = `native-eplist-${engineName}-${fallbackAnimeId}`;
+      let episodes = getCache(cacheKey);
+      if (!episodes) {
+        console.log(`[FALLBACK] Fetching episode list from ${engineName}...`);
+        const info = await timeoutPromise(engine.fetchAnimeInfo(fallbackAnimeId), 25000);
+        episodes = info?.episodes || [];
+        if (episodes.length > 0) setCache(cacheKey, episodes, 3);
+      }
+      const ep = episodes.find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
+      if (!ep?.id) throw new Error(`${engineName}: ep ${fallbackEpNum} not in ${episodes.length} episodes`);
+      console.log(`[FALLBACK] ${engineName} ep ID: ${ep.id}`);
+      const rawData = await timeoutPromise(engine.fetchEpisodeSources(ep.id), 15000);
+      if (!rawData?.sources?.length) throw new Error(`${engineName}: blank sources`);
+      return { rawData, referer };
     };
 
-    let targetSlug = STATIC_NATIVE_MAP[fallbackAnimeId] ? `${STATIC_NATIVE_MAP[fallbackAnimeId]}-episode-${fallbackEpNum}` : `${fallbackAnimeId}-episode-${fallbackEpNum}`;
-    
-    try {
-      if (!STATIC_NATIVE_MAP[fallbackAnimeId]) {
-        const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(fallbackAnimeId), 8000);
-        const actualTargetEp = (consumetInfo?.episodes || []).find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
-        if (actualTargetEp?.id) targetSlug = actualTargetEp.id;
+    const engines = [
+      { engine: new META.Anilist(new ANIME.AnimePahe()), name: 'AnimePahe', referer: 'https://animepahe.ru/' },
+      { engine: new META.Anilist(new ANIME.AnimeKai()), name: 'AnimeKai', referer: 'https://animekai.to/' },
+    ];
+
+    for (const { engine, name, referer } of engines) {
+      try {
+        const { rawData } = await tryEngine(engine, name, referer);
+        console.log(`[FALLBACK] ✅ ${name} returned ${rawData.sources.length} source(s)`);
+        const proxyWrapped = {
+          ...rawData,
+          sources: rawData.sources.map(st => {
+            const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
+            return {
+              ...st,
+              url: `${baseUrl}${isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream'}?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}${isM3U8 ? `&cb=${Date.now()}` : ''}`,
+              isM3U8, isIframe: false
+            };
+          })
+        };
+        return await enrichWithSkipTimes(proxyWrapped, fallbackAnimeId, fallbackEpNum);
+      } catch (err) {
+        console.warn(`[FALLBACK] ${name} failed: ${err.message}`);
       }
-      
-      const rawData = await timeoutPromise(anilist.fetchEpisodeSources(targetSlug), 10000);
-      if (!rawData || !rawData.sources || rawData.sources.length === 0) throw new Error("Blank sources");
-      
-      const proxyWrappedData = {
-        ...rawData,
-        sources: rawData.sources.map(st => {
-          const rawUrl = st.url;
-          const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
-          const proxyEndpoint = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-          const cacheBuster = isM3U8 ? `&cb=${Date.now()}` : '';
-          return { ...st, url: `${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent('https://gogoanime.co/')}${cacheBuster}` };
-        })
-      };
-      
-      return await enrichWithSkipTimes(proxyWrappedData, fallbackAnimeId, fallbackEpNum);
-    } catch (err) { 
-      console.warn("[WATCH] Consumet Fallback failed gracefully:", err.message);
-      return { error: "Unreleased or No Sources", sources: [] }; 
     }
+
+    console.error(`[FALLBACK] All engines exhausted for ID=${fallbackAnimeId} Ep=${fallbackEpNum}`);
+    return { error: "Episode currently unavailable from all upstream sources.", sources: [] };
   };
 
   return res.json(await executeNativePipelineFallback(requestedAnimeId, epNum));
