@@ -585,7 +585,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             if(isIframe) return {url:rawUrl,quality:st.quality||'embed',isM3U8:false,isIframe:true};
             const isM3U8=rawUrl.includes('.m3u8')||st.type==='hls';
             const targetReferer=st.referer||'https://kwik.cx/';
-            const CLOUDFLARE_WORKER = "https://kurotv-proxy.edwardmaina99.workers.dev";
+            const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
             return {url:`${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,quality:st.quality||'default',isM3U8,isIframe:false};
           }),
           subtitles:finalStreamPayload?.subtitles||[],
@@ -642,7 +642,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
             return {
               ...st,
-              url: `https://kurotv-proxy.edwardmaina99.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
+              url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
               isM3U8, isIframe: false
             };
           })
