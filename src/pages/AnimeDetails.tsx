@@ -217,7 +217,7 @@ export default function AnimeDetails() {
 
         const fetchFullChronology = async () => {
             if (!id) return;
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+            const apiUrl = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
 
             try {
                 const initialInfoRes = await fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null);
@@ -610,7 +610,7 @@ export default function AnimeDetails() {
 
             const resolvedTargetMal = currentKnownMal?.toString() || STATIC_FRONTEND_MAP[parentSeasonId] || '';
 
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+            const apiUrl = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
             
             // ⚡ FIX 2: Attach the target server to the backend API request
             const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}&server=${encodeURIComponent(serverToUse)}`;

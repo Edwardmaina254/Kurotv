@@ -42,7 +42,7 @@ app.use(helmet({
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'https://kurotv-production.up.railway.app',
+  'https://kurotv-frontend.onrender.com',
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
 ];
 
@@ -585,8 +585,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             if(isIframe) return {url:rawUrl,quality:st.quality||'embed',isM3U8:false,isIframe:true};
             const isM3U8=rawUrl.includes('.m3u8')||st.type==='hls';
             const targetReferer=st.referer||'https://kwik.cx/';
-            const proxyEndpoint=isM3U8?'/proxy/stream.m3u8':'/proxy/stream';
-            return {url:`${baseUrl}${proxyEndpoint}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,quality:st.quality||'default',isM3U8,isIframe:false};
+            const CLOUDFLARE_WORKER = "https://kurotv-proxy.edwardmaina99.workers.dev";
+            return {url:`${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,quality:st.quality||'default',isM3U8,isIframe:false};
           }),
           subtitles:finalStreamPayload?.subtitles||[],
           intro:finalStreamPayload?.intro?.end?{start:finalStreamPayload.intro.start,end:finalStreamPayload.intro.end}:null,
@@ -642,7 +642,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
             return {
               ...st,
-              url: `${baseUrl}${isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream'}?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}${isM3U8 ? `&cb=${Date.now()}` : ''}`,
+              url: `https://kurotv-proxy.edwardmaina99.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
               isM3U8, isIframe: false
             };
           })

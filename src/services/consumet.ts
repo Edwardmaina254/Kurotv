@@ -1,6 +1,6 @@
 // src/services/consumet.ts
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3005';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
 const CONSUMET_URL = `${API_BASE}/anime/zoro`;
 
 export interface AnimeResult {

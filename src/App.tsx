@@ -10,6 +10,7 @@ import Schedule from './pages/Schedule';
 import Profile from './pages/Profile';
 import Contact from './pages/Contact';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminUsers from './pages/AdminUsers';
 
 function ScrollRevealObserver() {
   const location = useLocation();
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/admin-dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
           </Routes>
         </main>
         <footer className="w-full border-t border-border mt-16 md:mt-24 py-8 md:py-10 px-4 md:px-6">

@@ -8,7 +8,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 if (!supabaseUrl || !supabaseAnonKey) {
     // This is the error you are seeing! 
     // It means the two lines above came back empty.
-    throw new Error("Missing Supabase environment variables! Check your Railway variables.");
+    throw new Error("Missing Supabase environment variables! Check your Render variables.");
 }
 
 // Global caching to prevent Vite Hot Module Replacement (HMR) 
