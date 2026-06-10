@@ -604,23 +604,43 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       }
 
       if (extractedWatchPath && finalStreamPayload) {
-        const activeStreams=finalStreamPayload.streams;
-        const finalPayload={
-          sources:activeStreams.map(st=>{
-            const rawUrl=st.url;
-            const isIframe=st.type==='embed'||rawUrl.includes('/e/')||rawUrl.includes('embed');
-            if(isIframe) return {url:rawUrl,quality:st.quality||'embed',isM3U8:false,isIframe:true};
-            const isM3U8=rawUrl.includes('.m3u8')||st.type==='hls';
-            const targetReferer=st.referer||'https://kwik.cx/';
+        const activeStreams = finalStreamPayload.streams;
+        const finalPayload = {
+          sources: activeStreams.map(st => {
+            const rawUrl = st.url;
+            const isIframe = st.type === 'embed' || rawUrl.includes('/e/') || rawUrl.includes('embed');
+            if (isIframe) return { url: rawUrl, quality: st.quality || 'embed', isM3U8: false, isIframe: true };
+            
+            const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
+            const targetReferer = st.referer || 'https://kwik.cx/';
+
+            // 🔥 SMART ROUTING: If the host blocks Cloudflare data centers, route through Render instead!
+            if (rawUrl.includes('fast4speed.rsvp') || rawUrl.includes('fastspeed.rsvp')) {
+              const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
+              console.log(`[ROUTE] 🛰️ Routing Cloudflare-blocked host through Render: ${proxyPath}`);
+              return {
+                url: `${baseUrl}${proxyPath}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
+                quality: st.quality || 'default',
+                isM3U8,
+                isIframe: false
+              };
+            }
+
+            // Otherwise, route through Cloudflare safely to save bandwidth
             const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
-            return {url:`${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,quality:st.quality||'default',isM3U8,isIframe:false};
+            return {
+              url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
+              quality: st.quality || 'default',
+              isM3U8,
+              isIframe: false
+            };
           }),
-          subtitles:finalStreamPayload?.subtitles||[],
-          intro:finalStreamPayload?.intro?.end?{start:finalStreamPayload.intro.start,end:finalStreamPayload.intro.end}:null,
-          outro:finalStreamPayload?.outro?.start?{start:finalStreamPayload.outro.start,end:finalStreamPayload.outro.end}:null
+          subtitles: finalStreamPayload?.subtitles || [],
+          intro: finalStreamPayload?.intro?.end ? { start: finalStreamPayload.intro.start, end: finalStreamPayload.intro.end } : null,
+          outro: finalStreamPayload?.outro?.start ? { start: finalStreamPayload.outro.start, end: finalStreamPayload.outro.end } : null
         };
-        const enrichedPayload=await enrichWithSkipTimes(finalPayload,requestedAnimeId,epNum);
-        setCache(cacheKey,enrichedPayload);
+        const enrichedPayload = await enrichWithSkipTimes(finalPayload, requestedAnimeId, epNum);
+        setCache(cacheKey, enrichedPayload);
         return res.json(enrichedPayload);
       }
     }
@@ -667,6 +687,17 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           ...rawData,
           sources: rawData.sources.map(st => {
             const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
+            
+            // 🔥 Fallback check for native engines
+            if (st.url.includes('fast4speed.rsvp') || st.url.includes('fastspeed.rsvp')) {
+              const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
+              return {
+                ...st,
+                url: `${baseUrl}${proxyPath}?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
+                isM3U8, isIframe: false
+              };
+            }
+
             return {
               ...st,
               url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
