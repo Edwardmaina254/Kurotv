@@ -550,13 +550,40 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             if (streamRes.ok) {
               const payload = await streamRes.json();
               if (payload?.streams?.length > 0) {
-                // ⚡ FIX: Accept 'mp4' as a valid raw stream!
-                const hasRaw = payload.streams.some(s => s.type === 'hls' || s.url.includes('.m3u8') || s.type === 'mp4' || s.url.includes('.mp4'));
-                if (hasRaw) {
-                  extractedWatchPath = cleanPath;
-                  finalStreamPayload = payload;
-                  console.log(`[WATCH] ⚡ Success! Locked RAW stream from '${pKey}'`);
-                  break; 
+                
+                // Find the raw streaming link
+                const rawStream = payload.streams.find(s => s.type === 'hls' || s.url.includes('.m3u8') || s.type === 'mp4' || s.url.includes('.mp4'));
+                
+                if (rawStream) {
+                  // 🔥 NEW: Auto-Failover Engine! Verify the stream is actually alive before serving it.
+                  try {
+                    const checkController = new AbortController();
+                    const checkTimeout = setTimeout(() => checkController.abort(), 3500);
+                    
+                    // Send a micro-request to the video host to see if they reply or if the file was deleted
+                    const checkRes = await fetch(rawStream.url, {
+                      method: 'GET',
+                      headers: { 'Referer': rawStream.referer || 'https://kwik.cx/', 'Range': 'bytes=0-100' },
+                      signal: checkController.signal
+                    });
+                    clearTimeout(checkTimeout);
+
+                    // If the video host returns a 404 (Not Found) or 403 (Forbidden), the video is dead/DMCA'd!
+                    if (checkRes.status >= 400 && checkRes.status !== 401) {
+                      console.log(`[WATCH] ⚠️ '${pKey}' returned a dead link (Status: ${checkRes.status}). Auto-failing over...`);
+                      continue; // Instantly skip this provider and try the next one (MegaCloud, etc.)
+                    }
+                    
+                    // If the server responds cleanly, we lock it in!
+                    extractedWatchPath = cleanPath;
+                    finalStreamPayload = payload;
+                    console.log(`[WATCH] ⚡ Success! Locked and VERIFIED RAW stream from '${pKey}'`);
+                    break; 
+
+                  } catch (verifyErr) {
+                    console.log(`[WATCH] ⚠️ '${pKey}' stream verification timed out. Auto-failing over...`);
+                    continue; // Skip to next provider on timeout
+                  }
                 } else if (!backupIframePayload) {
                   console.log(`[WATCH] '${pKey}' is an IFRAME. Saving as backup...`);
                   backupIframePath = cleanPath;
