@@ -279,9 +279,9 @@ export default function Navbar() {
 
         {/* Desktop nav items */}
         <div className="hidden lg:flex items-center gap-5 text-[11px] xl:text-[12px] font-bold tracking-wider text-fg">
-          <button onClick={handleRandom} className="hover:text-fg transition-colors cursor-pointer">Random</button>
+          <Link to="/random" onClick={(e) => { e.preventDefault(); handleRandom(); }} className="hover:text-fg transition-colors cursor-pointer">Random</Link>
           <div className="relative group py-4">
-            <button className="hover:text-fg transition-colors cursor-pointer">Genres</button>
+            <Link to="/genres" className="hover:text-fg transition-colors cursor-pointer">Genres</Link>
             <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
               <div className="bg-surface border border-border rounded-xl p-4 w-[420px] shadow-lg">
                 <div className="grid grid-cols-3 gap-2">
@@ -291,15 +291,15 @@ export default function Navbar() {
             </div>
           </div>
           <div className="relative group py-4">
-            <button className="hover:text-fg transition-colors cursor-pointer">Types</button>
+            <Link to="/types" className="hover:text-fg transition-colors cursor-pointer">Types</Link>
             <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
               <div className="bg-surface border border-border rounded-xl py-1.5 w-[140px] shadow-lg">
                 {TYPES.map((type) => <button key={type.value} onClick={() => navigate(`/search?format=${type.value}`)} className="text-left text-[11px] text-muted hover:text-accent hover:bg-bg transition-colors px-4 py-2 w-full">{type.label}</button>)}
               </div>
             </div>
           </div>
-          <button onClick={() => navigate('/search?status=RELEASING&sort=newest')} className="hover:text-fg transition-colors cursor-pointer">New Releases</button>
-          <button onClick={() => navigate('/schedule')} className="hover:text-fg transition-colors cursor-pointer">Schedule</button>
+          <Link to="/new-releases" className="hover:text-fg transition-colors cursor-pointer">New Releases</Link>
+          <Link to="/schedule" className="hover:text-fg transition-colors cursor-pointer">Schedule</Link>
 
           {user ? (
             <div className="relative" ref={profileMenuRef}>
@@ -420,15 +420,15 @@ export default function Navbar() {
               </button>
             )}
 
-            <button onClick={() => { navigate('/search?status=RELEASING&sort=newest'); setMobileMenuOpen(false); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer">
+            <Link to="/new-releases" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
               New Releases
-            </button>
-            <button onClick={() => { navigate('/schedule'); setMobileMenuOpen(false); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer">
+            </Link>
+            <Link to="/schedule" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
               Schedule
-            </button>
-            <button onClick={handleRandom} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer">
+            </Link>
+            <Link to="/random" onClick={(e) => { e.preventDefault(); handleRandom(); setMobileMenuOpen(false); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
               Random
-            </button>
+            </Link>
 
             {/* Genres section */}
             <div className="mt-2 mb-1">
