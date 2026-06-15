@@ -298,7 +298,7 @@ export default function Navbar() {
               </div>
             </div>
           </div>
-          <Link to="/new-releases" className="hover:text-fg transition-colors cursor-pointer">New Releases</Link>
+          <Link to="/search?status=RELEASING&sort=newest" className="hover:text-fg transition-colors cursor-pointer">New Releases</Link>
           <Link to="/schedule" className="hover:text-fg transition-colors cursor-pointer">Schedule</Link>
 
           {user ? (
@@ -420,7 +420,7 @@ export default function Navbar() {
               </button>
             )}
 
-            <Link to="/new-releases" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
+            <Link to="/search?status=RELEASING&sort=newest" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
               New Releases
             </Link>
             <Link to="/schedule" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[12px] font-semibold text-muted hover:text-fg hover:bg-surface transition-all text-left cursor-pointer block">
