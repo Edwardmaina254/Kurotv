@@ -1008,6 +1008,21 @@ export default function AnimeDetails() {
         );
     }
 
+    const isUnreleased = animeFetchResult?.nextAiringEpisode && 
+                         activeEpisode &&
+                         Number(activeEpisode.number) >= animeFetchResult.nextAiringEpisode.episode;
+
+    let premiereDate = null;
+    let month = '', day = '', weekday = '', year = '';
+
+    if (isUnreleased && animeFetchResult.nextAiringEpisode.airingAt) {
+        premiereDate = new Date(animeFetchResult.nextAiringEpisode.airingAt * 1000);
+        month = premiereDate.toLocaleString('default', { month: 'long' }).toUpperCase();
+        day = premiereDate.getDate().toString();
+        weekday = premiereDate.toLocaleString('default', { weekday: 'long' });
+        year = premiereDate.getFullYear().toString();
+    }
+
     if (error || chronologicalSeasons.length === 0) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -1040,7 +1055,23 @@ export default function AnimeDetails() {
                                 onMouseMove={handleMouseMove}
                                 onMouseLeave={() => { if (isPlaying) { setShowControls(false); setIsMouseActive(false); } }}
                             >
-                                {streamError ? (
+                                {isUnreleased ? (
+                                    <div className="w-full aspect-video bg-[#0a0a0a] flex flex-col items-center justify-center rounded-xl border border-white/5">
+                                        <p className="text-muted text-xs tracking-[0.2em] font-semibold mb-2">PREMIERE</p>
+                                        <p className="text-white text-sm tracking-widest mb-1">{month}</p>
+                                        <h1 className="text-white text-8xl font-black tracking-tighter mb-2">{day}</h1>
+                                        <p className="text-muted text-sm mb-6">{weekday} · {year}</p>
+                                        
+                                        <div className="flex gap-3">
+                                            <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs font-medium">
+                                                {animeFetchResult?.type || 'TV'}
+                                            </span>
+                                            <span className="px-3 py-1 rounded-full bg-accent/20 text-accent text-xs font-medium border border-accent/30">
+                                                Not Yet Released
+                                            </span>
+                                        </div>
+                                    </div>
+                                ) : streamError ? (
                                     <div className="flex flex-col items-center justify-center w-full h-full bg-black z-50 p-6 text-center">
                                         <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 border border-danger/30 bg-danger/10">
                                             <span className="text-danger font-bold text-lg">!</span>

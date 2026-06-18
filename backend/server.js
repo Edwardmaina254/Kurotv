@@ -281,6 +281,7 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
       query ($id: Int) { 
         Media (id: $id, type: ANIME) { 
           id idMal title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } 
+          nextAiringEpisode { airingAt episode }
           relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format isAdult } } } 
         } 
       }`;
@@ -302,7 +303,9 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
       image: anime.coverImage?.extraLarge || '', bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
       description: anime.description || 'No synopsis available.', genres: anime.genres || [], rating: anime.averageScore || 0,
       status: anime.status || 'UNKNOWN', totalEpisodes: anime.episodes || 0, type: anime.type || 'TV',
-      releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown', relations
+      releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown',
+      nextAiringEpisode: anime.nextAiringEpisode || null,
+      relations
     };
 
     setCache(cacheKey, payloadObj);
