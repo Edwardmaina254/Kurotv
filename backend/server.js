@@ -715,6 +715,48 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     }
 
     console.error(`[FALLBACK] All engines exhausted for ID=${fallbackAnimeId} Ep=${fallbackEpNum}`);
+    
+    // 🔥 Fetch fresh AniList details to see if this episode just aired or hasn't aired yet
+    try {
+      const aniListRes = await axios.post('https://graphql.anilist.co', {
+        query: `
+          query ($id: Int) {
+            Media (id: $id, type: ANIME) {
+              nextAiringEpisode { airingAt episode }
+              episodes
+            }
+          }`,
+        variables: { id: parseInt(fallbackAnimeId) }
+      });
+
+      const media = aniListRes.data?.data?.Media;
+      if (media) {
+        const nextEp = media.nextAiringEpisode;
+        const totalEp = media.episodes;
+        
+        // Scenario A: The episode number requested is higher than what AniList says has aired
+        if (nextEp && parseInt(fallbackEpNum) >= nextEp.episode) {
+          return {
+            error: "PREMIERE_AWAITING",
+            airingAt: nextEp.airingAt,
+            episode: fallbackEpNum
+          };
+        }
+        
+        // Scenario B: It's the current episode that just flipped over in the last 3 hours, but no streams exist yet
+        const threeHoursInSeconds = 3 * 60 * 60;
+        const now = Math.floor(Date.now() / 1000);
+        if (nextEp && (parseInt(fallbackEpNum) === nextEp.episode - 1)) {
+          return {
+            error: "UPLOADING_DELAY",
+            episode: fallbackEpNum
+          };
+        }
+      }
+    } catch (anilistErr) {
+      console.error("[CRON/FALLBACK] Failed to check AniList safety gap:", anilistErr.message);
+    }
+
     return { error: "Episode currently unavailable from all upstream sources.", sources: [] };
   };
 

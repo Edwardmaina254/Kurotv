@@ -68,7 +68,7 @@ export default function AnimeDetails() {
     const [watchlistLoading, setWatchlistLoading] = useState(false);
 
     const [availableSources, setAvailableSources] = useState<any[]>([]);
-    const [streamData, setStreamData] = useState<{ url: string; isIframe: boolean; isM3U8?: boolean } | null>(null);
+    const [streamData, setStreamData] = useState<any>(null);
     const [isFetchingStream, setIsFetchingStream] = useState(false);
     const [streamError, setStreamError] = useState<string | null>(null);
 
@@ -370,7 +370,6 @@ export default function AnimeDetails() {
                     const extractedNumMatch = epFromUrl.match(/\d+$/);
                     const targetNum = extractedNumMatch ? extractedNumMatch[0] : epFromUrl;
 
-                    // ⚡ FIX: 1. PRIORITIZE THE REQUESTED SEASON FROM THE URL FIRST
                     const requestedSeason = isolatedSeasons.find(s => s.id.toString() === id);
                     if (requestedSeason) {
                         const foundInRequested = (requestedSeason.episodes || []).find(e =>
@@ -385,7 +384,6 @@ export default function AnimeDetails() {
                         }
                     }
 
-                    // ⚡ FIX: 2. FALLBACK: If not found in the exact requested season, then check chronological seasons
                     if (!targetEpToPlay) {
                         for (const s of isolatedSeasons) {
                             const found = (s.episodes || []).find(e =>
@@ -444,7 +442,6 @@ export default function AnimeDetails() {
                             recommendations(page: 1, perPage: 15) {
                                 nodes {
                                     mediaRecommendation {
-                                        # 🔥 Added isAdult here so we can read it
                                         id title { english romaji } coverImage { large } averageScore type isAdult
                                     }
                                 }
@@ -462,7 +459,6 @@ export default function AnimeDetails() {
                 const data = await res.json();
                 const nodes = data?.data?.Media?.recommendations?.nodes || [];
                 
-                // 🔥 Filtered out anything where isAdult is true
                 setRecommendations(nodes
                     .map((n: any) => n.mediaRecommendation)
                     .filter((r: any) => r && r.id.toString() !== id && r.isAdult !== true)
@@ -505,7 +501,6 @@ export default function AnimeDetails() {
         }
     }, [malId, primarySeason, activeEpisode]);
 
-    // Domains known to block iframes — skip these sources entirely
     const BLOCKED_IFRAME_DOMAINS = ['anidb.app', 'anidb.net', 'kwik.cx', 'kwik.si'];
     const isBlockedSource = (source: any) => {
         if (!source.isIframe) return false;
@@ -562,10 +557,9 @@ export default function AnimeDetails() {
         }
     };
 
-    // ⚡ FIX 1: Allow the function to accept a forceServer parameter
     const handlePlayEpisode = async (episode: Episode, parentSeasonId: string, forceMode?: 'sub' | 'dub', forceServer?: string) => {
         const modeToUse = forceMode || audioMode;
-        const serverToUse = forceServer || activeServer; // Use the requested server
+        const serverToUse = forceServer || activeServer;
 
         setActiveEpisode(episode);
         setPlayingSeasonId(parentSeasonId);
@@ -612,15 +606,18 @@ export default function AnimeDetails() {
 
             const apiUrl = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
             
-            // ⚡ FIX 2: Attach the target server to the backend API request
             const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}&server=${encodeURIComponent(serverToUse)}`;
 
             const res = await fetch(backendUrl);
             const data = await res.json();
 
             if (data.error || !data.sources || data.sources.length === 0) {
-                const message = data.error || "This media segment is undergoing background synchronization from mirror servers. Please try another episode or server.";
-                setStreamError(message);
+                if (data.error === "PREMIERE_AWAITING" || data.error === "UPLOADING_DELAY") {
+                    setStreamData(data);
+                } else {
+                    const message = data.error || "This media segment is undergoing background synchronization from mirror servers. Please try another episode or server.";
+                    setStreamError(message);
+                }
                 setIsFetchingStream(false);
                 return;
             }
@@ -634,11 +631,9 @@ export default function AnimeDetails() {
 
             const sourcesArray = data.sources || [];
             if (sourcesArray && sourcesArray.length > 0) {
-                // Strip known broken iframe domains before touching the player
                 const cleanSources = sourcesArray.filter((s: any) => !isBlockedSource(s));
 
                 if (cleanSources.length === 0) {
-                    // All sources were blocked iframes — auto-try next server
                     const servers = ['Vidstreaming', 'MegaCloud', 'StreamSB'];
                     const nextServer = servers.find(s => s !== serverToUse);
                     console.warn(`[PLAYER] All sources blocked (anidb/kwik). Auto-switching to ${nextServer}...`);
@@ -669,31 +664,16 @@ export default function AnimeDetails() {
         }
     };
 
-    // ⚡ FIX 3: Make the server button actually trigger a new API fetch
     const handleServerChange = (srv: string) => {
         if (srv === activeServer) return;
         setActiveServer(srv);
         if (activeEpisode && playingSeasonId) {
-            // Actually call the backend to get the new server's video links!
             handlePlayEpisode(activeEpisode, playingSeasonId, audioMode, srv);
         }
     };
 
-    const handleNextEpisode = () => {
-        if (!playingSeasonId || !activeEpisode) return;
-        const currentActiveSeasonObj = chronologicalSeasons.find(s => s.id === playingSeasonId);
-        if (!currentActiveSeasonObj?.episodes) return;
-
-        const currentEpList = currentActiveSeasonObj.episodes;
-        const currentIndex = currentEpList.findIndex(ep => ep.id === activeEpisode.id);
-
-        if (currentIndex !== -1 && currentIndex < currentEpList.length - 1) {
-            handlePlayEpisode(currentEpList[currentIndex + 1], playingSeasonId);
-        }
-    };
-
     useEffect(() => {
-        if (!streamData || !videoRef.current || streamData.isIframe) return;
+        if (!streamData || streamData.error || !videoRef.current || streamData.isIframe) return;
         const video = videoRef.current;
         let hls: Hls | null = null;
         setQualities([]);
@@ -729,7 +709,6 @@ export default function AnimeDetails() {
                 const parsedQualities = data.levels.map((level, index) => ({ height: level.height, level: index })).reverse();
                 setQualities(parsedQualities);
                 
-                // 🔥 FORCE HIGHEST QUALITY: Stop Hls.js from auto-downgrading
                 if (parsedQualities.length > 0) {
                     const highestQuality = parsedQualities[0].level;
                     hls!.currentLevel = highestQuality;
@@ -747,7 +726,7 @@ export default function AnimeDetails() {
                         case Hls.ErrorTypes.MEDIA_ERROR:
                             console.error(`[HLS] Fatal stream error (${data.details}). Evacuating to next stream node.`);
                             hls!.destroy();
-                            fallbackRef.current(); // Instantly skips to the next server
+                            fallbackRef.current();
                             break;
                         default:
                             hls!.destroy();
@@ -841,7 +820,6 @@ export default function AnimeDetails() {
                 setBufferedEnd(video.buffered.end(video.buffered.length - 1));
             }
 
-            // 🔥 Dropped threshold from 5s to 2s
             if (video.currentTime > 2 && video.duration > 0) {
                 if (video.duration - video.currentTime < 30) {
                     localStorage.setItem(watchedKey, 'true');
@@ -854,7 +832,6 @@ export default function AnimeDetails() {
                 } else {
                     localStorage.setItem(progressKey, video.currentTime.toString());
 
-                    // 🔥 Dropped threshold from 10s difference to 4s difference
                     if (user && Math.abs(video.currentTime - lastSavedTimeRef.current) > 4) {
                         lastSavedTimeRef.current = video.currentTime;
                         supabase.from('watch_history').upsert({
@@ -879,7 +856,6 @@ export default function AnimeDetails() {
         const onPlay = () => setIsPlaying(true);
         const onPause = () => setIsPlaying(false);
 
-        // 🔥 STALL DETECTOR: If buffering > 5s with no progress, nuke & fallback
         let stallTimer: number | null = null;
         let lastProgressTime = video.currentTime;
 
@@ -892,7 +868,6 @@ export default function AnimeDetails() {
             lastProgressTime = video.currentTime;
             clearStall();
             stallTimer = window.setTimeout(() => {
-                // Only fire if currentTime hasn't advanced (genuine stall, not a seek)
                 if (Math.abs(video.currentTime - lastProgressTime) < 0.5) {
                     console.warn('[STALL] Stream stalled for 5s with no progress. Evacuating to next source.');
                     fallbackRef.current();
@@ -902,7 +877,7 @@ export default function AnimeDetails() {
 
         const onPlaying = () => {
             setIsBuffering(false);
-            clearStall(); // Progress resumed — cancel the stall timer
+            clearStall();
         };
 
         video.addEventListener('timeupdate', onTimeUpdate);
@@ -1008,21 +983,6 @@ export default function AnimeDetails() {
         );
     }
 
-    const isUnreleased = animeFetchResult?.nextAiringEpisode && 
-                         activeEpisode &&
-                         Number(activeEpisode.number) >= animeFetchResult.nextAiringEpisode.episode;
-
-    let premiereDate = null;
-    let month = '', day = '', weekday = '', year = '';
-
-    if (isUnreleased && animeFetchResult.nextAiringEpisode.airingAt) {
-        premiereDate = new Date(animeFetchResult.nextAiringEpisode.airingAt * 1000);
-        month = premiereDate.toLocaleString('default', { month: 'long' }).toUpperCase();
-        day = premiereDate.getDate().toString();
-        weekday = premiereDate.toLocaleString('default', { weekday: 'long' });
-        year = premiereDate.getFullYear().toString();
-    }
-
     if (error || chronologicalSeasons.length === 0) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -1055,22 +1015,44 @@ export default function AnimeDetails() {
                                 onMouseMove={handleMouseMove}
                                 onMouseLeave={() => { if (isPlaying) { setShowControls(false); setIsMouseActive(false); } }}
                             >
-                                {isUnreleased ? (
-                                    <div className="w-full aspect-video bg-[#0a0a0a] flex flex-col items-center justify-center rounded-xl border border-white/5">
-                                        <p className="text-muted text-xs tracking-[0.2em] font-semibold mb-2">PREMIERE</p>
-                                        <p className="text-white text-sm tracking-widest mb-1">{month}</p>
-                                        <h1 className="text-white text-8xl font-black tracking-tighter mb-2">{day}</h1>
-                                        <p className="text-muted text-sm mb-6">{weekday} · {year}</p>
-                                        
-                                        <div className="flex gap-3">
-                                            <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs font-medium">
-                                                {animeFetchResult?.type || 'TV'}
-                                            </span>
-                                            <span className="px-3 py-1 rounded-full bg-accent/20 text-accent text-xs font-medium border border-accent/30">
-                                                Not Yet Released
-                                            </span>
-                                        </div>
-                                    </div>
+                                {(streamData?.error === "PREMIERE_AWAITING" || streamData?.error === "UPLOADING_DELAY") ? (
+                                    (() => {
+                                        const isUploading = streamData.error === "UPLOADING_DELAY";
+                                        let m = "COMING", d = "SOON", w = "Processing", y = "";
+                                        if (streamData.airingAt) {
+                                            const pDate = new Date(streamData.airingAt * 1000);
+                                            m = pDate.toLocaleString('default', { month: 'long' }).toUpperCase();
+                                            d = pDate.getDate().toString();
+                                            w = pDate.toLocaleString('default', { weekday: 'long' });
+                                            y = pDate.getFullYear().toString();
+                                        }
+                                        return (
+                                            <div className="w-full aspect-video bg-[#0a0a0a] flex flex-col items-center justify-center rounded-xl border border-white/5">
+                                                <p className="text-muted text-xs tracking-[0.2em] font-semibold mb-2">
+                                                    {isUploading ? "STREAM STATUS" : "PREMIERE"}
+                                                </p>
+                                                <p className="text-white text-sm tracking-widest mb-1">
+                                                    {isUploading ? "EPISODE AIRED" : m}
+                                                </p>
+                                                <h1 className="text-white text-5xl md:text-7xl font-black tracking-tighter mb-2">
+                                                    {isUploading ? "⚙️ UPLOADING" : d}
+                                                </h1>
+                                                <p className="text-muted text-sm mb-6 text-center max-w-xs px-4">
+                                                    {isUploading 
+                                                    ? "The episode finished airing in Japan! Servers are currently encoding and uploading the video chunks. Check back in a few minutes." 
+                                                    : `${w} · ${y}`}
+                                                </p>
+                                                <div className="flex gap-3">
+                                                    <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs font-medium">
+                                                    Episode {streamData.episode}
+                                                    </span>
+                                                    <span className="px-3 py-1 rounded-full bg-accent/20 text-accent text-xs font-medium border border-accent/30 animate-pulse">
+                                                    {isUploading ? "Encoding Chunks..." : "Scheduled"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()
                                 ) : streamError ? (
                                     <div className="flex flex-col items-center justify-center w-full h-full bg-black z-50 p-6 text-center">
                                         <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 border border-danger/30 bg-danger/10">
