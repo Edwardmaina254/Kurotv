@@ -626,7 +626,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
             const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
-            const targetReferer = st.referer || 'https://kwik.cx/';
+            const targetReferer = st.referer || st.headers?.Referer || st.headers?.referer || 'https://kwik.cx/';
 
             // 🔥 STRICT CLOUDFLARE ROUTING
             const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
