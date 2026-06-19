@@ -625,9 +625,21 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             if (isIframe) return { url: rawUrl, quality: st.quality || 'embed', isM3U8: false, isIframe: true };
             
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
+            const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
             const targetReferer = st.referer || 'https://kwik.cx/';
 
-            // 🔥 STRICT CLOUDFLARE ROUTING: Render never touches video.
+            // 🚀 NATIVE DIRECT BYPASS: Cloudflare free tier cannot handle 300MB+ continuous MP4 streams.
+            // Pass the raw URL directly. Native <video> tags bypass strict CORS naturally.
+            if (isMp4 && !isM3U8) {
+              return {
+                url: rawUrl,
+                quality: st.quality || 'default',
+                isM3U8: false,
+                isIframe: false
+              };
+            }
+
+            // 🔥 STRICT CLOUDFLARE ROUTING (For tiny HLS chunks only)
             const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
             return {
               url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
@@ -687,13 +699,26 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         const proxyWrapped = {
           ...rawData,
           sources: rawData.sources.map(st => {
-            const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
+            const rawUrl = st.url;
+            const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
+            const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
             
+            // 🚀 NATIVE DIRECT BYPASS
+            if (isMp4 && !isM3U8) {
+              return {
+                ...st,
+                url: rawUrl,
+                isM3U8: false, 
+                isIframe: false
+              };
+            }
+
             // 🔥 STRICT CLOUDFLARE ROUTING
             return {
               ...st,
-              url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
-              isM3U8, isIframe: false
+              url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(referer)}`,
+              isM3U8, 
+              isIframe: false
             };
           })
         };
