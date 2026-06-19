@@ -461,7 +461,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v3-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v4-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -568,6 +568,13 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 const rawStream = payload.streams.find(s => s.type === 'hls' || s.url.includes('.m3u8') || s.type === 'mp4' || s.url.includes('.mp4'));
                 
                 if (rawStream) {
+                  // 🔥 POISON PILL: Cloudflare proxy is IP-banned by fast4speed.
+                  // Render can access it, but Cloudflare cannot. We MUST reject it here or the proxy will crash.
+                  if (rawStream.url.includes('fast4speed') || rawStream.url.includes('fastspeed')) {
+                    console.log(`[WATCH] ⚠️ Rejecting Cloudflare-banned fast4speed link from ${pKey}. Auto-failing over...`);
+                    continue; 
+                  }
+
                   // 🔥 NEW: Auto-Failover Engine! Verify the stream is actually alive before serving it.
                   try {
                     const checkController = new AbortController();
