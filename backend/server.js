@@ -12,9 +12,18 @@ import 'dotenv/config';
 // 🔥 GLOBAL TLS OVERRIDE: Defeats strict Node.js SSL handshake drops
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
+import axios from 'axios';
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
 const { META, ANIME } = consumet;
+
+// 🔥 INJECT STEALTH USER-AGENT GLOBALLY
+axios.defaults.headers.common['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+axios.interceptors.request.use(config => {
+  if (!config.headers) config.headers = {};
+  config.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  return config;
+});
 
 // ==========================================
 // 🛡️ SECURE INITIALIZATION
@@ -451,7 +460,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const targetProviderKey = serverMap[requestedServer] || 'zoro';
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
-  const cacheKey = `watch-extracted-${episodeId}-${lang}-${targetProviderKey}`;
+  // 🔥 BUST CACHE to clear bad consumet handshakes
+  const cacheKey = `watch_v2-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
