@@ -685,10 +685,18 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     for (const { engine, name, referer } of engines) {
       try {
         const { rawData } = await tryEngine(engine, name, referer);
-        console.log(`[FALLBACK] ✅ ${name} returned ${rawData.sources.length} source(s)`);
+        
+        // 🔥 POISON PILL CHECK: Cloudflare is IP-banned by fast4speed.
+        // If an engine only returns fast4speed links, we MUST skip it so we can reach Gogoanime.
+        const validSources = rawData.sources.filter(st => !st.url.includes('fast4speed.rsvp') && !st.url.includes('fastspeed.rsvp'));
+        if (validSources.length === 0 && rawData.sources.length > 0) {
+          throw new Error("Engine returned ONLY Cloudflare-banned fast4speed links.");
+        }
+
+        console.log(`[FALLBACK] ✅ ${name} returned ${validSources.length} valid source(s)`);
         const proxyWrapped = {
           ...rawData,
-          sources: rawData.sources.map(st => {
+          sources: validSources.map(st => {
             const rawUrl = st.url;
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
             const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
