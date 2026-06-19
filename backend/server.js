@@ -628,18 +628,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
             const targetReferer = st.referer || 'https://kwik.cx/';
 
-            // 🚀 NATIVE DIRECT BYPASS: Cloudflare free tier cannot handle 300MB+ continuous MP4 streams.
-            // Pass the raw URL directly. Native <video> tags bypass strict CORS naturally.
-            if (isMp4 && !isM3U8) {
-              return {
-                url: rawUrl,
-                quality: st.quality || 'default',
-                isM3U8: false,
-                isIframe: false
-              };
-            }
-
-            // 🔥 STRICT CLOUDFLARE ROUTING (For tiny HLS chunks only)
+            // 🔥 STRICT CLOUDFLARE ROUTING
             const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
             return {
               url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
@@ -703,16 +692,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
             const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
             
-            // 🚀 NATIVE DIRECT BYPASS
-            if (isMp4 && !isM3U8) {
-              return {
-                ...st,
-                url: rawUrl,
-                isM3U8: false, 
-                isIframe: false
-              };
-            }
-
             // 🔥 STRICT CLOUDFLARE ROUTING
             return {
               ...st,
