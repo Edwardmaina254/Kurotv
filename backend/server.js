@@ -460,8 +460,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const targetProviderKey = serverMap[requestedServer] || 'zoro';
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
-  // 🔥 BUST CACHE to clear bad consumet handshakes
-  const cacheKey = `watch_v2-${episodeId}-${lang}-${targetProviderKey}`;
+  // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
+  const cacheKey = `watch_v3-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
