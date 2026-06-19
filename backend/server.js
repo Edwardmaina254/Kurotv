@@ -617,19 +617,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
             const targetReferer = st.referer || 'https://kwik.cx/';
 
-            // 🔥 SMART ROUTING: If the host blocks Cloudflare data centers, route through Render instead!
-            if (rawUrl.includes('fast4speed.rsvp') || rawUrl.includes('fastspeed.rsvp')) {
-              const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-              console.log(`[ROUTE] 🛰️ Routing Cloudflare-blocked host through Render: ${proxyPath}`);
-              return {
-                url: `${baseUrl}${proxyPath}?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
-                quality: st.quality || 'default',
-                isM3U8,
-                isIframe: false
-              };
-            }
-
-            // Otherwise, route through Cloudflare safely to save bandwidth
+            // 🔥 STRICT CLOUDFLARE ROUTING: Render never touches video.
             const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
             return {
               url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
@@ -691,16 +679,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           sources: rawData.sources.map(st => {
             const isM3U8 = st.url.includes('.m3u8') || st.type === 'hls';
             
-            // 🔥 Fallback check for native engines
-            if (st.url.includes('fast4speed.rsvp') || st.url.includes('fastspeed.rsvp')) {
-              const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
-              return {
-                ...st,
-                url: `${baseUrl}${proxyPath}?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
-                isM3U8, isIframe: false
-              };
-            }
-
+            // 🔥 STRICT CLOUDFLARE ROUTING
             return {
               ...st,
               url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(referer)}`,
