@@ -679,6 +679,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     const engines = [
       { engine: new META.Anilist(new ANIME.AnimePahe()), name: 'AnimePahe', referer: 'https://animepahe.ru/' },
       { engine: new META.Anilist(new ANIME.AnimeKai()), name: 'AnimeKai', referer: 'https://animekai.to/' },
+      { engine: new META.Anilist(new ANIME.Gogoanime()), name: 'Gogoanime', referer: 'https://gogoanime.cl/' },
     ];
 
     for (const { engine, name, referer } of engines) {
