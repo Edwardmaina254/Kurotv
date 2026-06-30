@@ -89,7 +89,12 @@ export default function AnimeDetails() {
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const seekContainerRef = useRef<HTMLDivElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [isSeeking, setIsSeeking] = useState(false); // 🔥 Decouples dragging from seeking
+    const [isSeeking, setIsSeeking] = useState(false);
+    const isSeekingRef = useRef(false);
+    const setSeeking = (val: boolean) => {
+        setIsSeeking(val);
+        isSeekingRef.current = val;
+    };
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
@@ -863,7 +868,7 @@ export default function AnimeDetails() {
         const watchedKey = `kuro-watched-${playingSeasonId}-${activeEpisode.id}`;
 
         const onTimeUpdate = () => {
-            if (!isSeeking) {
+            if (!isSeekingRef.current) {
                 setCurrentTime(video.currentTime);
             }
 
@@ -973,7 +978,7 @@ export default function AnimeDetails() {
         if (videoRef.current) {
             videoRef.current.currentTime = val;
         }
-        setIsSeeking(false);
+        setSeeking(false);
     }, []);
 
     const handleSeekHover = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1157,7 +1162,7 @@ export default function AnimeDetails() {
                                                             </div>
                                                             <input type="range" min="0" max={duration || 100} value={currentTime}
                                                                 onChange={handleSeek}
-                                                                onPointerDown={() => setIsSeeking(true)}
+                                                                onPointerDown={() => setSeeking(true)}
                                                                 onPointerUp={handleSeekEnd}
                                                                 className="relative z-10 w-full h-1 appearance-none outline-none rounded-full cursor-pointer hover:h-1.5 transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full"
                                                                 style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
