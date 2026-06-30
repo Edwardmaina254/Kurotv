@@ -89,6 +89,7 @@ export default function AnimeDetails() {
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const seekContainerRef = useRef<HTMLDivElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isSeeking, setIsSeeking] = useState(false); // 🔥 Decouples dragging from seeking
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
@@ -105,6 +106,9 @@ export default function AnimeDetails() {
     const [isHovering, setIsHovering] = useState(false);
     const [bufferedEnd, setBufferedEnd] = useState(0);
 
+    const [thumbnailsVttUrl, setThumbnailsVttUrl] = useState<string | null>(null);
+    const [vttCues, setVttCues] = useState<any[]>([]);
+
     const controlsTimeoutRef = useRef<number | null>(null);
     const lastSavedTimeRef = useRef<number>(0);
 
@@ -113,7 +117,6 @@ export default function AnimeDetails() {
         playerStateRef.current = { volume, currentTime, duration, isPlaying };
     }, [volume, currentTime, duration, isPlaying]);
 
-    // 🔥 Keeps the maximize/minimize icon synced if the user presses the ESC key
     useEffect(() => {
         const handleFullscreenChange = () => {
             setIsFullscreen(!!document.fullscreenElement);
@@ -672,6 +675,56 @@ export default function AnimeDetails() {
         }
     };
 
+    const parseVTT = (vttText: string) => {
+        const lines = vttText.split('\n');
+        const cues = [];
+        let currentCue: any = null;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line.includes('-->')) {
+                const [startStr, endStr] = line.split(' --> ');
+                const timeToSec = (t: string) => {
+                    const parts = t.split(':');
+                    if (parts.length === 3) return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
+                    if (parts.length === 2) return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+                    return parseFloat(t);
+                };
+                currentCue = { start: timeToSec(startStr), end: timeToSec(endStr) };
+            } else if (currentCue && line.includes('#xywh=')) {
+                const [urlPart, xywhPart] = line.split('#xywh=');
+                const [x, y, w, h] = xywhPart.split(',').map(Number);
+                
+                let fullImgUrl = urlPart;
+                if (!urlPart.startsWith('http') && thumbnailsVttUrl) {
+                     try { fullImgUrl = new URL(urlPart, thumbnailsVttUrl).toString(); } catch {}
+                }
+
+                currentCue.img = fullImgUrl;
+                currentCue.x = x; currentCue.y = y; currentCue.w = w; currentCue.h = h;
+                cues.push(currentCue);
+                currentCue = null;
+            }
+        }
+        return cues;
+    };
+
+    useEffect(() => {
+        if (!streamData) return;
+        const thumbTrack = streamData.subtitles?.find((s: any) => s.lang === 'Thumbnails');
+        if (thumbTrack && thumbTrack.url) {
+            setThumbnailsVttUrl(thumbTrack.url);
+            fetch(thumbTrack.url)
+                .then(r => r.text())
+                .then(text => {
+                    const cues = parseVTT(text);
+                    setVttCues(cues);
+                }).catch(console.error);
+        } else {
+            setThumbnailsVttUrl(null);
+            setVttCues([]);
+        }
+    }, [streamData]);
+
     useEffect(() => {
         if (!streamData || streamData.error || !videoRef.current || streamData.isIframe) return;
         const video = videoRef.current;
@@ -761,8 +814,8 @@ export default function AnimeDetails() {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (document.activeElement?.tagName === 'INPUT') return;
-            const { volume: v, currentTime: ct, duration: d, isPlaying: p } = playerStateRef.current;
+            const p = playerStateRef.current;
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'f', ' ', 's', 'S'].includes(e.key)) {
                 e.preventDefault();
@@ -774,19 +827,15 @@ export default function AnimeDetails() {
             }
 
             switch (e.key) {
-                case 'ArrowRight':
-                    if (videoRef.current) videoRef.current.currentTime = Math.min(ct + 5, d);
-                    break;
-                case 'ArrowLeft':
-                    if (videoRef.current) videoRef.current.currentTime = Math.max(ct - 10, 0);
-                    break;
+                case 'ArrowRight': skipTime(10); break;
+                case 'ArrowLeft': skipTime(-10); break;
                 case 'ArrowUp':
-                    const newVolUp = Math.min(v + 0.1, 1);
+                    const newVolUp = Math.min(1, p.volume + 0.1);
                     setVolume(newVolUp);
                     if (videoRef.current) { videoRef.current.volume = newVolUp; setIsMuted(newVolUp === 0); }
                     break;
                 case 'ArrowDown':
-                    const newVolDown = Math.max(v - 0.1, 0);
+                    const newVolDown = Math.max(0, p.volume - 0.1);
                     setVolume(newVolDown);
                     if (videoRef.current) { videoRef.current.volume = newVolDown; setIsMuted(newVolDown === 0); }
                     break;
@@ -795,13 +844,13 @@ export default function AnimeDetails() {
                     toggleFullscreen();
                     break;
                 case ' ':
-                    if (videoRef.current) { p ? videoRef.current.pause() : videoRef.current.play(); }
+                    if (videoRef.current) { p.isPlaying ? videoRef.current.pause() : videoRef.current.play(); }
                     break;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [currentTime]);
+    }, []);
 
     useEffect(() => {
         const video = videoRef.current;
@@ -814,7 +863,9 @@ export default function AnimeDetails() {
         const watchedKey = `kuro-watched-${playingSeasonId}-${activeEpisode.id}`;
 
         const onTimeUpdate = () => {
-            setCurrentTime(video.currentTime);
+            if (!isSeeking) {
+                setCurrentTime(video.currentTime);
+            }
 
             if (video.buffered.length > 0) {
                 setBufferedEnd(video.buffered.end(video.buffered.length - 1));
@@ -915,8 +966,15 @@ export default function AnimeDetails() {
     const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = parseFloat(e.target.value);
         setCurrentTime(val);
-        if (videoRef.current) videoRef.current.currentTime = val;
     };
+
+    const handleSeekEnd = useCallback((e: React.ChangeEvent<HTMLInputElement> | React.PointerEvent<HTMLInputElement>) => {
+        const val = parseFloat((e.target as HTMLInputElement).value);
+        if (videoRef.current) {
+            videoRef.current.currentTime = val;
+        }
+        setIsSeeking(false);
+    }, []);
 
     const handleSeekHover = (e: React.PointerEvent<HTMLDivElement>) => {
         const rect = seekContainerRef.current?.getBoundingClientRect();
@@ -932,9 +990,9 @@ export default function AnimeDetails() {
         setIsHovering(false);
     };
 
-    const skipTime = (seconds: number) => {
+    const skipTime = useCallback((seconds: number) => {
         if (videoRef.current) videoRef.current.currentTime += seconds;
-    };
+    }, []);
 
     const toggleFullscreen = () => {
         if (!playerContainerRef.current) return;
@@ -1002,7 +1060,7 @@ export default function AnimeDetails() {
                     <span className="text-border shrink-0">/</span>
                     <span className="shrink-0">{primarySeason?.type || "TV Series"}</span>
                     <span className="text-border shrink-0">/</span>
-                    <span className="text-fg truncate">Watching <span className="text-accent">{primarySeason?.title}</span></span>
+                    <span className="shrink-0">Watching <span className="text-accent">{primarySeason?.title}</span></span>
                 </div>
 
                 <div className="flex flex-col xl:flex-row gap-6 md:gap-8 items-start">
@@ -1097,13 +1155,37 @@ export default function AnimeDetails() {
                                                             <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 rounded-full bg-white/10 overflow-hidden pointer-events-none">
                                                                 <div className="h-full bg-white/20 rounded-full transition-all duration-150" style={{ width: `${bufferedPercent}%` }} />
                                                             </div>
-                                                            <input type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
+                                                            <input type="range" min="0" max={duration || 100} value={currentTime}
+                                                                onChange={handleSeek}
+                                                                onPointerDown={() => setIsSeeking(true)}
+                                                                onPointerUp={handleSeekEnd}
                                                                 className="relative z-10 w-full h-1 appearance-none outline-none rounded-full cursor-pointer hover:h-1.5 transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full"
                                                                 style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
                                                             {isHovering && (
-                                                                <div className="absolute -top-8 left-0 -translate-x-1/2 pointer-events-none z-20 bg-black/90 text-white text-[10px] font-mono px-1.5 py-0.5 rounded shadow-lg border border-white/10"
+                                                                <div className="absolute bottom-6 left-0 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20"
                                                                     style={{ left: `${hoverPercent}%` }}>
-                                                                    {formatTime(hoverTime)}
+                                                                    {(() => {
+                                                                        const cue = vttCues.find(c => hoverTime >= c.start && hoverTime <= c.end);
+                                                                        if (cue) {
+                                                                            return (
+                                                                                <div className="mb-1 rounded overflow-hidden shadow-lg border border-white/20 bg-black/50 backdrop-blur-sm"
+                                                                                     style={{ width: 160, height: 90 }}>
+                                                                                    <div style={{
+                                                                                        width: cue.w, height: cue.h,
+                                                                                        backgroundImage: `url(${cue.img})`,
+                                                                                        backgroundPosition: `-${cue.x}px -${cue.y}px`,
+                                                                                        backgroundSize: 'auto',
+                                                                                        transform: `scale(${160 / cue.w})`,
+                                                                                        transformOrigin: 'top left'
+                                                                                    }} />
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                        return null;
+                                                                    })()}
+                                                                    <div className="bg-black/90 text-white text-[10px] font-mono px-1.5 py-0.5 rounded shadow-lg border border-white/10">
+                                                                        {formatTime(hoverTime)}
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>

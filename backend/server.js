@@ -317,7 +317,9 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
       relations
     };
 
-    setCache(cacheKey, payloadObj);
+    // 🔥 CACHE FIX: Releasing anime should only be cached for 1 hour to prevent delaying new episodes
+    const ttl = payloadObj.status === 'RELEASING' ? 1 : 12;
+    setCache(cacheKey, payloadObj, ttl);
     return res.json(payloadObj);
   } catch { res.status(404).json({ error: "Not found" }); }
 });
@@ -343,7 +345,9 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
     if (consumetInfo?.episodes?.length > 0) {
       const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number))).sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
-      setCache(cacheKey, { episodes: sanitized });
+      // 🔥 CACHE FIX: Releasing anime gets a 1-hour cache, otherwise 12 hours
+      const ttl = consumetInfo.status === 'Ongoing' ? 1 : 12;
+      setCache(cacheKey, { episodes: sanitized }, ttl);
       return res.json({ episodes: sanitized });
     }
   } catch { }
@@ -353,7 +357,7 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   for (let i = 1; i <= limit; i++) {
     finalEps.push({ id: `auto-${id}-${i}`, number: format === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` });
   }
-  setCache(cacheKey, { episodes: finalEps });
+  setCache(cacheKey, { episodes: finalEps }, 1); // 1-hour cache for auto-generated list in case it's releasing
   res.json({ episodes: finalEps });
 });
 
@@ -507,8 +511,28 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
     const epListCacheKey = `miruro-eplist-${requestedAnimeId}`;
     let epListData = getCache(epListCacheKey);
+    let forceFetch = false;
 
-    if (!epListData) {
+    // 🔥 CACHE FIX: If we have cached data, but the requested episode isn't in it, BUST THE CACHE!
+    if (epListData && epNum) {
+      let episodeFound = false;
+      const availableProviders = epListData?.providers || {};
+      for (const pKey of Object.keys(availableProviders)) {
+        const providerEps = availableProviders[pKey]?.episodes?.[lang] || 
+                            availableProviders[pKey]?.episodes?.['sub'] || 
+                            availableProviders[pKey]?.episodes?.['raw'] || [];
+        if (providerEps.find(e => parseInt(e.number, 10) === parseInt(epNum, 10))) {
+          episodeFound = true;
+          break;
+        }
+      }
+      if (!episodeFound) {
+        console.log(`[WATCH] Episode ${epNum} not found in cache. BUSTING CACHE to fetch fresh list!`);
+        forceFetch = true;
+      }
+    }
+
+    if (!epListData || forceFetch) {
       console.log(`[WATCH] Requesting episode mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
       const epListController = new AbortController();
       const epListTimeout = setTimeout(() => epListController.abort(), 20000);
@@ -520,7 +544,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       if (epListRes.ok) {
         epListData = await epListRes.json();
-        setCache(epListCacheKey, epListData, 12);
+        setCache(epListCacheKey, epListData, 2); // 🔥 CACHE FIX: Lowered from 12 hours to 2 hours for Miruro episode mappings!
       }
     }
 
