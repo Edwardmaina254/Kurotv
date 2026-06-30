@@ -1,5 +1,5 @@
 // src/pages/AnimeDetails.tsx
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { type AnimeDetails as AnimeDetailsType, type Episode } from '../services/consumet';
 import {
