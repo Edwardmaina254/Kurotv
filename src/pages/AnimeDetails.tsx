@@ -715,10 +715,25 @@ export default function AnimeDetails() {
 
     useEffect(() => {
         if (!streamData) return;
-        const thumbTrack = streamData.subtitles?.find((s: any) => s.lang === 'Thumbnails');
-        if (thumbTrack && thumbTrack.url) {
-            setThumbnailsVttUrl(thumbTrack.url);
-            fetch(thumbTrack.url)
+        
+        // 🔥 FIX: Search across all possible metadata arrays returned by the backend
+        const allTracks = [
+            ...(streamData.subtitles || []),
+            ...(streamData.tracks || []),
+            ...(streamData.thumbnails || [])
+        ];
+
+        // Match different possible labels for thumbnails
+        const thumbTrack = allTracks.find((s: any) => 
+            (s.lang && s.lang.toLowerCase() === 'thumbnails') ||
+            (s.kind && s.kind.toLowerCase() === 'thumbnails') ||
+            (s.label && s.label.toLowerCase() === 'thumbnails')
+        );
+
+        if (thumbTrack && (thumbTrack.url || thumbTrack.file)) {
+            const finalUrl = thumbTrack.url || thumbTrack.file;
+            setThumbnailsVttUrl(finalUrl);
+            fetch(finalUrl)
                 .then(r => r.text())
                 .then(text => {
                     const cues = parseVTT(text);

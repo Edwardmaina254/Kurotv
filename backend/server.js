@@ -669,6 +669,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             };
           }),
           subtitles: finalStreamPayload?.subtitles || [],
+          tracks: finalStreamPayload?.tracks || [], // 🔥 FIX: Capture tracks/thumbnails if API uses different key
+          thumbnails: finalStreamPayload?.thumbnails || [],
           intro: finalStreamPayload?.intro?.end ? { start: finalStreamPayload.intro.start, end: finalStreamPayload.intro.end } : null,
           outro: finalStreamPayload?.outro?.start ? { start: finalStreamPayload.outro.start, end: finalStreamPayload.outro.end } : null
         };
