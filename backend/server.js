@@ -16,6 +16,7 @@ import axios from 'axios';
 const require = createRequire(import.meta.url);
 const consumet = require('@consumet/extensions');
 const { META, ANIME } = consumet;
+const cheerio = require('cheerio');
 
 // 🔥 INJECT STEALTH USER-AGENT GLOBALLY
 axios.defaults.headers.common['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -506,296 +507,133 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  const MIRURO_API_BASE = process.env.EXTRACTOR_API_URL ? process.env.EXTRACTOR_API_URL.replace(/\/+$/, '') : 'http://127.0.0.1:8000';
-
-  try {
-    const epListCacheKey = `miruro-eplist-${requestedAnimeId}`;
-    let epListData = getCache(epListCacheKey);
-    let forceFetch = false;
-
-    // 🔥 CACHE FIX: If we have cached data, but the requested episode isn't in it, BUST THE CACHE!
-    if (epListData && epNum) {
-      let episodeFound = false;
-      const availableProviders = epListData?.providers || {};
-      for (const pKey of Object.keys(availableProviders)) {
-        const providerEps = availableProviders[pKey]?.episodes?.[lang] || 
-                            availableProviders[pKey]?.episodes?.['sub'] || 
-                            availableProviders[pKey]?.episodes?.['raw'] || [];
-        if (providerEps.find(e => parseInt(e.number, 10) === parseInt(epNum, 10))) {
-          episodeFound = true;
-          break;
-        }
-      }
-      if (!episodeFound) {
-        console.log(`[WATCH] Episode ${epNum} not found in cache. BUSTING CACHE to fetch fresh list!`);
-        forceFetch = true;
-      }
-    }
-
-    if (!epListData || forceFetch) {
-      console.log(`[WATCH] Requesting episode mappings from ${MIRURO_API_BASE} for ID: ${requestedAnimeId}...`);
-      const epListController = new AbortController();
-      const epListTimeout = setTimeout(() => epListController.abort(), 20000);
-      const epListRes = await fetch(`${MIRURO_API_BASE}/episodes/${requestedAnimeId}`, {
-        headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/3.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
-        signal: epListController.signal
-      });
-      clearTimeout(epListTimeout);
-
-      if (epListRes.ok) {
-        epListData = await epListRes.json();
-        setCache(epListCacheKey, epListData, 2); // 🔥 CACHE FIX: Lowered from 12 hours to 2 hours for Miruro episode mappings!
-      }
-    }
-
-    if (epListData) {
-      let extractedWatchPath = null; 
-      let finalStreamPayload = null;
-      let backupIframePayload = null;
-      let backupIframePath = null;
-
-      const availableProviders = epListData?.providers || {};
-      
-      // ⚡ FIX 2: Push the user's requested server to the very front of the preferred array!
-      const preferred = [targetProviderKey, 'zoro', 'ally', 'arc', 'jet', 'telli'];
-      const allKeys = Object.keys(availableProviders).filter(k => k !== 'kiwi');
-      
-      // Set removes duplicates, guaranteeing targetProviderKey stays at index 0
-      const providerKeys = [...new Set([...preferred, ...allKeys])].filter(k => availableProviders[k]);
-
-      for (const pKey of providerKeys) {
-        const providerEps = availableProviders[pKey]?.episodes?.[lang] || 
-                            availableProviders[pKey]?.episodes?.['sub'] || 
-                            availableProviders[pKey]?.episodes?.['raw'] || [];
-                            
-        const matchedEp = providerEps.find(e => parseInt(e.number, 10) === parseInt(epNum, 10));
-
-        if (matchedEp?.id) {
-          console.log(`[WATCH] Attempting extraction from '${pKey}'...`);
-          const cleanPath = matchedEp.id.startsWith('/') ? matchedEp.id.slice(1) : matchedEp.id;
-
-          try {
-            const streamController = new AbortController();
-            const streamTimeout = setTimeout(() => streamController.abort(), 15000); 
-            
-            const streamRes = await fetch(`${MIRURO_API_BASE}/${cleanPath}`, {
-              headers: { 'Accept': 'application/json', 'User-Agent': 'KuroTV-Gateway/9.0', 'Referer': 'https://www.miruro.tv/', 'Origin': 'https://www.miruro.tv' },
-              signal: streamController.signal
-            });
-            clearTimeout(streamTimeout);
-
-            if (streamRes.ok) {
-              const payload = await streamRes.json();
-              if (payload?.streams?.length > 0) {
-                
-                // Find the raw streaming link
-                const rawStream = payload.streams.find(s => s.type === 'hls' || s.url.includes('.m3u8') || s.type === 'mp4' || s.url.includes('.mp4'));
-                
-                if (rawStream) {
-                  // 🔥 POISON PILL: Cloudflare proxy is IP-banned by fast4speed.
-                  // Render can access it, but Cloudflare cannot. We MUST reject it here or the proxy will crash.
-                  if (rawStream.url.includes('fast4speed') || rawStream.url.includes('fastspeed')) {
-                    console.log(`[WATCH] ⚠️ Rejecting Cloudflare-banned fast4speed link from ${pKey}. Auto-failing over...`);
-                    continue; 
-                  }
-
-                  // 🔥 NEW: Auto-Failover Engine! Verify the stream is actually alive before serving it.
-                  try {
-                    const checkController = new AbortController();
-                    const checkTimeout = setTimeout(() => checkController.abort(), 3500);
-                    
-                    // Send a micro-request to the video host to see if they reply or if the file was deleted
-                    const checkRes = await fetch(rawStream.url, {
-                      method: 'GET',
-                      headers: { 'Referer': rawStream.referer || 'https://kwik.cx/', 'Range': 'bytes=0-100' },
-                      signal: checkController.signal
-                    });
-                    clearTimeout(checkTimeout);
-
-                    // If the video host returns a 404 (Not Found) or 403 (Forbidden), the video is dead/DMCA'd!
-                    if (checkRes.status >= 400 && checkRes.status !== 401) {
-                      console.log(`[WATCH] ⚠️ '${pKey}' returned a dead link (Status: ${checkRes.status}). Auto-failing over...`);
-                      continue; // Instantly skip this provider and try the next one (MegaCloud, etc.)
-                    }
-                    
-                    // If the server responds cleanly, we lock it in!
-                    extractedWatchPath = cleanPath;
-                    finalStreamPayload = payload;
-                    console.log(`[WATCH] ⚡ Success! Locked and VERIFIED RAW stream from '${pKey}'`);
-                    break; 
-
-                  } catch (verifyErr) {
-                    console.log(`[WATCH] ⚠️ '${pKey}' stream verification timed out. Auto-failing over...`);
-                    continue; // Skip to next provider on timeout
-                  }
-                } else if (!backupIframePayload) {
-                  console.log(`[WATCH] '${pKey}' is an IFRAME. Saving as backup...`);
-                  backupIframePath = cleanPath;
-                  backupIframePayload = payload;
-                }
-              }
-            }
-          } catch (err) {
-            console.warn(`[WATCH] Provider '${pKey}' failed: ${err.message}`);
-          }
-        }
-      }
-
-      if (!extractedWatchPath && backupIframePayload) {
-        extractedWatchPath = backupIframePath;
-        finalStreamPayload = backupIframePayload;
-        console.log(`[WATCH] ⚠️ No RAW streams found. Falling back to saved IFRAME.`);
-      }
-
-      if (extractedWatchPath && finalStreamPayload) {
-        const activeStreams = finalStreamPayload.streams;
-        const finalPayload = {
-          sources: activeStreams.map(st => {
-            const rawUrl = st.url;
-            const isIframe = st.type === 'embed' || rawUrl.includes('/e/') || rawUrl.includes('embed');
-            if (isIframe) return { url: rawUrl, quality: st.quality || 'embed', isM3U8: false, isIframe: true };
-            
-            const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
-            const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
-            const targetReferer = st.referer || st.headers?.Referer || st.headers?.referer || 'https://kwik.cx/';
-
-            // 🔥 STRICT CLOUDFLARE ROUTING
-            const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
-            return {
-              url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(targetReferer)}`,
-              quality: st.quality || 'default',
-              isM3U8,
-              isIframe: false
-            };
-          }),
-          subtitles: finalStreamPayload?.subtitles || [],
-          tracks: finalStreamPayload?.tracks || [], // 🔥 FIX: Capture tracks/thumbnails if API uses different key
-          thumbnails: finalStreamPayload?.thumbnails || [],
-          intro: finalStreamPayload?.intro?.end ? { start: finalStreamPayload.intro.start, end: finalStreamPayload.intro.end } : null,
-          outro: finalStreamPayload?.outro?.start ? { start: finalStreamPayload.outro.start, end: finalStreamPayload.outro.end } : null
-        };
-        const enrichedPayload = await enrichWithSkipTimes(finalPayload, requestedAnimeId, epNum);
-        setCache(cacheKey, enrichedPayload);
-        return res.json(enrichedPayload);
-      }
-    }
-  } catch (extractorErr) {
-    console.warn(`[WATCH] Miruro pipeline failed:`, extractorErr.message);
-  }
-
-  // ==========================================
-  // 🔥 SAFE NATIVE SCRAPER (BYPASSES BROKEN CONSUMET GOGOANIME CRASH)
-  // ==========================================
-  // ── NATIVE FALLBACK: AnimePahe → AnimeKai → Hianime ────────────────────────
-  // Runs when Miruro has no working streams. Uses AniList ID directly — no slug mapping needed.
-  // Previous fallback was broken: it passed Gogoanime slugs to a Hianime scraper instance.
-  const executeNativePipelineFallback = async (fallbackAnimeId, fallbackEpNum) => {
-    console.log(`[WATCH] Native fallback: ID=${fallbackAnimeId} Ep=${fallbackEpNum}`);
-
-    const tryEngine = async (engine, engineName, referer) => {
-      const cacheKey = `native-eplist-${engineName}-${fallbackAnimeId}`;
-      let episodes = getCache(cacheKey);
-      if (!episodes) {
-        console.log(`[FALLBACK] Fetching episode list from ${engineName}...`);
-        const info = await timeoutPromise(engine.fetchAnimeInfo(fallbackAnimeId), 25000);
-        episodes = info?.episodes || [];
-        if (episodes.length > 0) setCache(cacheKey, episodes, 3);
-      }
-      const ep = episodes.find(e => parseInt(e.number, 10) === parseInt(fallbackEpNum, 10));
-      if (!ep?.id) throw new Error(`${engineName}: ep ${fallbackEpNum} not in ${episodes.length} episodes`);
-      console.log(`[FALLBACK] ${engineName} ep ID: ${ep.id}`);
-      const rawData = await timeoutPromise(engine.fetchEpisodeSources(ep.id), 15000);
-      if (!rawData?.sources?.length) throw new Error(`${engineName}: blank sources`);
-      return { rawData, referer };
-    };
-
-    const engines = [
-      { engine: new META.Anilist(new ANIME.AnimePahe()), name: 'AnimePahe', referer: 'https://animepahe.ru/' },
-      { engine: new META.Anilist(new ANIME.AnimeKai()), name: 'AnimeKai', referer: 'https://animekai.to/' },
-      { engine: new META.Anilist(new ANIME.Hianime()), name: 'Hianime', referer: 'https://hianime.to/' },
-    ];
-
-    for (const { engine, name, referer } of engines) {
-      try {
-        const { rawData } = await tryEngine(engine, name, referer);
-        
-        // 🔥 POISON PILL CHECK: Cloudflare is IP-banned by fast4speed.
-        // If an engine only returns fast4speed links, we MUST skip it so we can reach Gogoanime.
-        const validSources = rawData.sources.filter(st => !st.url.includes('fast4speed.rsvp') && !st.url.includes('fastspeed.rsvp'));
-        if (validSources.length === 0 && rawData.sources.length > 0) {
-          throw new Error("Engine returned ONLY Cloudflare-banned fast4speed links.");
-        }
-
-        console.log(`[FALLBACK] ✅ ${name} returned ${validSources.length} valid source(s)`);
-        const proxyWrapped = {
-          ...rawData,
-          sources: validSources.map(st => {
-            const rawUrl = st.url;
-            const isM3U8 = rawUrl.includes('.m3u8') || st.type === 'hls';
-            const isMp4 = rawUrl.includes('.mp4') || st.type === 'mp4';
-            
-            // 🔥 STRICT CLOUDFLARE ROUTING
-            return {
-              ...st,
-              url: `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(referer)}`,
-              isM3U8, 
-              isIframe: false
-            };
-          })
-        };
-        return await enrichWithSkipTimes(proxyWrapped, fallbackAnimeId, fallbackEpNum);
-      } catch (err) {
-        console.warn(`[FALLBACK] ${name} failed: ${err.message}`);
-      }
-    }
-
-    console.error(`[FALLBACK] All engines exhausted for ID=${fallbackAnimeId} Ep=${fallbackEpNum}`);
-    
-    // 🔥 Fetch fresh AniList details to see if this episode just aired or hasn't aired yet
+  const extractAniNekoStream = async (anilistId, epNum) => {
     try {
-      const aniListRes = await axios.post('https://graphql.anilist.co', {
-        query: `
-          query ($id: Int) {
-            Media (id: $id, type: ANIME) {
-              nextAiringEpisode { airingAt episode }
-              episodes
-            }
-          }`,
-        variables: { id: parseInt(fallbackAnimeId) }
+      console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
+      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } } }`;
+      const anilistRes = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } })
       });
+      const anilistData = await anilistRes.json();
+      const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
+      if (!title) return null;
 
-      const media = aniListRes.data?.data?.Media;
-      if (media) {
-        const nextEp = media.nextAiringEpisode;
-        const totalEp = media.episodes;
-        
-        // Scenario A: The episode number requested is higher than what AniList says has aired
-        if (nextEp && parseInt(fallbackEpNum) >= nextEp.episode) {
+      console.log(`[WATCH] Searching AniNeko for title: "${title}"...`);
+      const searchRes = await fetch('https://anineko.to/browser?keyword=' + encodeURIComponent(title), { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const searchHtml = await searchRes.text();
+      const $search = cheerio.load(searchHtml);
+      let slug = '';
+      $search('.nv-anime-thumb').each((i, el) => {
+          const href = $search(el).attr('href');
+          if (href && href.includes('/watch/')) {
+              slug = href.replace('/watch/', '');
+              return false;
+          }
+      });
+      if (!slug) return null;
+
+      console.log(`[WATCH] Found AniNeko slug: "${slug}". Fetching Episode ${epNum}...`);
+      const epUrl = `https://anineko.to/watch/${slug}/ep-${epNum}`;
+      const epRes = await fetch(epUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const epHtml = await epRes.text();
+      const $ep = cheerio.load(epHtml);
+
+      let vidUrl = '';
+      $ep('[data-video]').each((i, el) => {
+          const url = $ep(el).attr('data-video');
+          if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
+              if (url.includes('vivibebe') || url.includes('bibiemb')) {
+                  vidUrl = url;
+              } else if (!vidUrl) {
+                  vidUrl = url;
+              }
+          }
+      });
+      
+      if (!vidUrl) return null;
+      console.log(`[WATCH] Extracted Raw Video Server URL: ${vidUrl}`);
+
+      const vidRes = await fetch(vidUrl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://anineko.to/' } });
+      const vidHtml = await vidRes.text();
+      const m3u8Match = vidHtml.match(/["']([^"']+\.m3u8.*?)["']/);
+      
+      if (m3u8Match) {
+          console.log(`[WATCH] ✅ Successfully extracted M3U8 Master Playlist!`);
           return {
-            error: "PREMIERE_AWAITING",
-            airingAt: nextEp.airingAt,
-            episode: fallbackEpNum
+             headers: { "Referer": "https://vivibebe.site/" },
+             sources: [{ url: m3u8Match[1], isM3U8: true, quality: 'default' }]
           };
-        }
-        
-        // Scenario B: It's the current episode that just flipped over in the last 3 hours, but no streams exist yet
-        const threeHoursInSeconds = 3 * 60 * 60;
-        const now = Math.floor(Date.now() / 1000);
-        if (nextEp && (parseInt(fallbackEpNum) === nextEp.episode - 1)) {
-          return {
-            error: "UPLOADING_DELAY",
-            episode: fallbackEpNum
-          };
-        }
       }
-    } catch (anilistErr) {
-      console.error("[CRON/FALLBACK] Failed to check AniList safety gap:", anilistErr.message);
+      return null;
+    } catch (e) {
+      console.error('[AniNeko Extractor] Error:', e.message);
+      return null;
     }
-
-    return { error: "Episode currently unavailable from all upstream sources.", sources: [] };
   };
 
-  return res.json(await executeNativePipelineFallback(requestedAnimeId, epNum));
+  try {
+     const payload = await extractAniNekoStream(requestedAnimeId, epNum);
+     if (payload) {
+         const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
+         const proxyWrapped = {
+            ...payload,
+            sources: payload.sources.map(st => ({
+               ...st,
+               url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
+               isM3U8: true,
+               isIframe: false
+            }))
+         };
+         const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
+         setCache(cacheKey, enrichedPayload);
+         return res.json(enrichedPayload);
+     }
+  } catch (err) {
+     console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
+  }
+  
+  // 🔥 Fetch fresh AniList details to see if this episode just aired or hasn't aired yet
+  try {
+    const aniListRes = await axios.post('https://graphql.anilist.co', {
+      query: `
+        query ($id: Int) {
+          Media (id: $id, type: ANIME) {
+            nextAiringEpisode { airingAt episode }
+            episodes
+          }
+        }`,
+      variables: { id: parseInt(requestedAnimeId) }
+    });
+
+    const media = aniListRes.data?.data?.Media;
+    if (media) {
+      const nextEp = media.nextAiringEpisode;
+      
+      // Scenario A: The episode number requested is higher than what AniList says has aired
+      if (nextEp && parseInt(epNum) >= nextEp.episode) {
+        return res.json({
+          error: "PREMIERE_AWAITING",
+          airingAt: nextEp.airingAt,
+          episode: epNum
+        });
+      }
+      
+      // Scenario B: It's the current episode that just flipped over in the last 3 hours, but no streams exist yet
+      if (nextEp && (parseInt(epNum) === nextEp.episode - 1)) {
+        return res.json({
+          error: "UPLOADING_DELAY",
+          episode: epNum
+        });
+      }
+    }
+  } catch (anilistErr) {
+    console.error("[CRON/FALLBACK] Failed to check AniList safety gap:", anilistErr.message);
+  }
+
+  return res.status(404).json({ message: "Stream Unavailable - Episode currently unavailable from all upstream sources." });
+
 });
 
 app.listen(preferredPort, host, () => {
