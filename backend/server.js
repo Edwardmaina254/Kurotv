@@ -575,8 +575,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           checkGroup('dub');
       }
 
-      // Only fallback to generic scraping if there are absolutely NO language tabs on the page (legacy AniNeko pages)
-      if (!vidUrl && $ep('.server-items').length === 0) {
+      // Reverting to allow fallback to ANY available video (e.g. Dub) if the requested one is completely missing from AniNeko
+      if (!vidUrl) {
           $ep('[data-video]').each((i, el) => {
               const url = $ep(el).attr('data-video');
               if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
