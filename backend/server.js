@@ -507,7 +507,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  const extractAniNekoStream = async (anilistId, epNum) => {
+  const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
     try {
       console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
       const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } } }`;
@@ -532,6 +532,21 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               return false;
           }
       });
+      
+      if (!slug && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
+          console.log(`[WATCH] English title search failed, trying romaji: "${anilistData.data.Media.title.romaji}"`);
+          const searchResRomaji = await fetch('https://anineko.to/browser?keyword=' + encodeURIComponent(anilistData.data.Media.title.romaji), { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          const searchHtmlRomaji = await searchResRomaji.text();
+          const $searchRomaji = cheerio.load(searchHtmlRomaji);
+          $searchRomaji('.nv-anime-thumb').each((i, el) => {
+              const href = $searchRomaji(el).attr('href');
+              if (href && href.includes('/watch/')) {
+                  slug = href.replace('/watch/', '');
+                  return false;
+              }
+          });
+      }
+
       if (!slug) return null;
 
       console.log(`[WATCH] Found AniNeko slug: "${slug}". Fetching Episode ${epNum}...`);
@@ -541,19 +556,37 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       const $ep = cheerio.load(epHtml);
 
       let vidUrl = '';
-      $ep('[data-video]').each((i, el) => {
-          const url = $ep(el).attr('data-video');
-          if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-              if (url.includes('vivibebe') || url.includes('bibiemb')) {
-                  vidUrl = url;
-              } else if (!vidUrl) {
-                  vidUrl = url;
+      let targetGroup = requestedLang === 'dub' ? 'dub' : 'sub';
+      
+      const checkGroup = (group) => {
+          $ep(`.server-items[data-id="${group}"] [data-video]`).each((i, el) => {
+              const url = $ep(el).attr('data-video');
+              if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
+                  if (url.includes('vivibebe') || url.includes('bibiemb')) vidUrl = url;
+                  else if (!vidUrl) vidUrl = url;
               }
-          }
-      });
+          });
+      };
+      
+      checkGroup(targetGroup);
+      if (!vidUrl && targetGroup === 'sub') checkGroup('hsub');
+      if (!vidUrl) {
+          $ep('[data-video]').each((i, el) => {
+              const url = $ep(el).attr('data-video');
+              if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
+                  if (url.includes('vivibebe') || url.includes('bibiemb')) vidUrl = url;
+                  else if (!vidUrl) vidUrl = url;
+              }
+          });
+      }
       
       if (!vidUrl) return null;
       console.log(`[WATCH] Extracted Raw Video Server URL: ${vidUrl}`);
+
+      let subtitleUrl = null;
+      if (vidUrl.includes('?sub=')) subtitleUrl = vidUrl.split('?sub=')[1].split('&')[0];
+      else if (vidUrl.includes('?caption_1=')) subtitleUrl = vidUrl.split('?caption_1=')[1].split('&')[0];
+      else if (vidUrl.includes('?c1_file=')) subtitleUrl = vidUrl.split('?c1_file=')[1].split('&')[0];
 
       const vidRes = await fetch(vidUrl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://anineko.to/' } });
       const vidHtml = await vidRes.text();
@@ -561,10 +594,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       
       if (m3u8Match) {
           console.log(`[WATCH] ✅ Successfully extracted M3U8 Master Playlist!`);
-          return {
+          const payload = {
              headers: { "Referer": "https://vivibebe.site/" },
              sources: [{ url: m3u8Match[1], isM3U8: true, quality: 'default' }]
           };
+          if (subtitleUrl) payload.subtitles = [{ url: subtitleUrl, lang: "English" }];
+          return payload;
       }
       return null;
     } catch (e) {
@@ -574,7 +609,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   };
 
   try {
-     const payload = await extractAniNekoStream(requestedAnimeId, epNum);
+     const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
      if (payload) {
          const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
          const proxyWrapped = {
