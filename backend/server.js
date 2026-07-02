@@ -568,8 +568,13 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           });
       };
       
-      checkGroup(targetGroup);
-      if (!vidUrl && targetGroup === 'sub') checkGroup('hsub');
+      if (targetGroup === 'sub') {
+          checkGroup('hsub'); // Prioritize Hard Subs (baked-in subtitles)
+          if (!vidUrl) checkGroup('sub'); // Fallback to Soft Subs
+      } else {
+          checkGroup('dub');
+      }
+
       if (!vidUrl) {
           $ep('[data-video]').each((i, el) => {
               const url = $ep(el).attr('data-video');
