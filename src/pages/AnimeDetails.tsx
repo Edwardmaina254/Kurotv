@@ -830,14 +830,14 @@ export default function AnimeDetails() {
                 restoreProgress();
                 video.play().catch(e => console.warn(e));
             }, { once: true });
-            video.addEventListener('error', () => { fallbackRef.current(); }, { once: true });
+            video.addEventListener('error', () => { fallbackRef.current('Video element native error'); }, { once: true });
         } else {
             video.src = streamData.url;
             video.addEventListener('loadedmetadata', () => {
                 restoreProgress();
                 video.play().catch(() => null);
             }, { once: true });
-            video.addEventListener('error', () => { fallbackRef.current(); }, { once: true });
+            video.addEventListener('error', () => { fallbackRef.current('Video element native error'); }, { once: true });
         }
 
         return () => {
@@ -954,10 +954,10 @@ export default function AnimeDetails() {
             clearStall();
             stallTimer = window.setTimeout(() => {
                 if (Math.abs(video.currentTime - lastProgressTime) < 0.5) {
-                    console.warn('[STALL] Stream stalled for 5s with no progress. Evacuating to next source.');
-                    fallbackRef.current();
+                    console.warn('[STALL] Stream stalled for 20s with no progress. Evacuating to next source.');
+                    fallbackRef.current('Video stalled for 20s (Buffering timeout)');
                 }
-            }, 5000);
+            }, 20000);
         };
 
         const onPlaying = () => {
