@@ -789,19 +789,36 @@ export default function AnimeDetails() {
                 video.play().catch(e => console.warn("Play interrupted:", e));
             });
 
+            let hlsErrorCount = 0;
             hls.on(Hls.Events.ERROR, (_, data) => {
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.warn(`[HLS] Fatal network error encountered, trying to recover...`);
+                            if (data.response && (data.response.code === 404 || data.response.code === 403)) {
+                                console.error('[HLS] Unrecoverable 404/403 network error.');
+                                hls!.destroy();
+                                fallbackRef.current();
+                            } else {
+                                hls!.startLoad();
+                            }
+                            break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.error(`[HLS] Fatal stream error (${data.details}). Evacuating to next stream node.`);
-                            hls!.destroy();
-                            fallbackRef.current();
+                            console.warn(`[HLS] Fatal media error encountered, trying to recover...`);
+                            hls!.recoverMediaError();
                             break;
                         default:
+                            console.error(`[HLS] Unrecoverable error (${data.details}). Evacuating.`);
                             hls!.destroy();
                             fallbackRef.current();
                             break;
+                    }
+                    
+                    hlsErrorCount++;
+                    if (hlsErrorCount > 5) {
+                        console.error('[HLS] Too many errors, forcing fallback.');
+                        hls!.destroy();
+                        fallbackRef.current();
                     }
                 }
             });
