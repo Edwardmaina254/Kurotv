@@ -525,7 +525,7 @@ export default function AnimeDetails() {
         });
     };
 
-    const triggerFallback = () => {
+    const triggerFallback = (errorDetails?: string) => {
         setAvailableSources((prevSources) => {
             const nextSources = [...prevSources];
             nextSources.shift();
@@ -534,7 +534,7 @@ export default function AnimeDetails() {
                 loadSpecificSource(nextSources[0]);
                 return nextSources;
             } else {
-                setStreamError("All streaming providers failed to respond. Upstream CDNs are currently resetting connections.");
+                setStreamError(`Stream Unavailable. Reason: ${errorDetails || 'All streaming providers failed to respond.'}`);
                 setStreamData(null);
                 return [];
             }
@@ -798,7 +798,7 @@ export default function AnimeDetails() {
                             if (data.response && (data.response.code === 404 || data.response.code === 403)) {
                                 console.error('[HLS] Unrecoverable 404/403 network error.');
                                 hls!.destroy();
-                                fallbackRef.current();
+                                fallbackRef.current(`Network Error: ${data.details} (${data.response.code})`);
                             } else {
                                 hls!.startLoad();
                             }
@@ -810,7 +810,7 @@ export default function AnimeDetails() {
                         default:
                             console.error(`[HLS] Unrecoverable error (${data.details}). Evacuating.`);
                             hls!.destroy();
-                            fallbackRef.current();
+                            fallbackRef.current(`Fatal Error: ${data.details}`);
                             break;
                     }
                     
@@ -818,7 +818,7 @@ export default function AnimeDetails() {
                     if (hlsErrorCount > 5) {
                         console.error('[HLS] Too many errors, forcing fallback.');
                         hls!.destroy();
-                        fallbackRef.current();
+                        fallbackRef.current(`Too many stream errors: ${data.details}`);
                     }
                 }
             });
