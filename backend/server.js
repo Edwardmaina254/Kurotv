@@ -528,6 +528,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
     try {
       console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
       const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } } }`;
+      
+      // Anilist's API allows native fetch, so this stays the same
       const anilistRes = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -538,9 +540,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (!title) return null;
 
       console.log(`[WATCH] Searching AniNeko for title: "${title}"...`);
-      const searchRes = await fetch('https://anineko.to/browser?keyword=' + encodeURIComponent(title), { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const searchHtml = await searchRes.text();
-      const $search = cheerio.load(searchHtml);
+      
+      // 🔥 THE FIX: Swap fetch for axios to use your global stealth interceptor
+      const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(title));
+      const $search = cheerio.load(searchRes.data);
+      
       let slug = '';
       $search('.nv-anime-thumb').each((i, el) => {
           const href = $search(el).attr('href');
@@ -552,9 +556,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       
       if (!slug && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
           console.log(`[WATCH] English title search failed, trying romaji: "${anilistData.data.Media.title.romaji}"`);
-          const searchResRomaji = await fetch('https://anineko.to/browser?keyword=' + encodeURIComponent(anilistData.data.Media.title.romaji), { headers: { 'User-Agent': 'Mozilla/5.0' } });
-          const searchHtmlRomaji = await searchResRomaji.text();
-          const $searchRomaji = cheerio.load(searchHtmlRomaji);
+          const searchResRomaji = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(anilistData.data.Media.title.romaji));
+          const $searchRomaji = cheerio.load(searchResRomaji.data);
           $searchRomaji('.nv-anime-thumb').each((i, el) => {
               const href = $searchRomaji(el).attr('href');
               if (href && href.includes('/watch/')) {
@@ -568,9 +571,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
       console.log(`[WATCH] Found AniNeko slug: "${slug}". Fetching Episode ${epNum}...`);
       const epUrl = `https://anineko.to/watch/${slug}/ep-${epNum}`;
-      const epRes = await fetch(epUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const epHtml = await epRes.text();
-      const $ep = cheerio.load(epHtml);
+      const epRes = await axios.get(epUrl);
+      const $ep = cheerio.load(epRes.data);
 
       let vidUrl = '';
       let targetGroup = requestedLang === 'dub' ? 'dub' : 'sub';
@@ -586,13 +588,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       };
       
       if (targetGroup === 'sub') {
-          checkGroup('hsub'); // Prioritize Hard Subs (baked-in subtitles)
-          if (!vidUrl) checkGroup('sub'); // Fallback to Soft Subs
+          checkGroup('hsub');
+          if (!vidUrl) checkGroup('sub');
       } else {
           checkGroup('dub');
       }
 
-      // Reverting to allow fallback to ANY available video (e.g. Dub) if the requested one is completely missing from AniNeko
       if (!vidUrl) {
           $ep('[data-video]').each((i, el) => {
               const url = $ep(el).attr('data-video');
@@ -611,9 +612,9 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       else if (vidUrl.includes('?caption_1=')) subtitleUrl = vidUrl.split('?caption_1=')[1].split('&')[0];
       else if (vidUrl.includes('?c1_file=')) subtitleUrl = vidUrl.split('?c1_file=')[1].split('&')[0];
 
-      const vidRes = await fetch(vidUrl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://anineko.to/' } });
-      const vidHtml = await vidRes.text();
-      const m3u8Match = vidHtml.match(/["']([^"']+\.m3u8.*?)["']/);
+      // 🔥 Maintain the Referer header to bypass upstream hotlink protections
+      const vidRes = await axios.get(vidUrl, { headers: { 'Referer': 'https://anineko.to/' } });
+      const m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
       
       if (m3u8Match) {
           console.log(`[WATCH] ✅ Successfully extracted M3U8 Master Playlist!`);
@@ -630,6 +631,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       return null;
     }
   };
+
 
   try {
      const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
