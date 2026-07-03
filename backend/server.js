@@ -617,12 +617,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
      const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
      if (payload) {
-         const CLOUDFLARE_WORKER = "https://kurotv-proxy.felixnjuguna31.workers.dev";
          const proxyWrapped = {
             ...payload,
             sources: payload.sources.map(st => ({
                ...st,
-               url: `${CLOUDFLARE_WORKER}/?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
+               url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
                isM3U8: true,
                isIframe: false
             }))
