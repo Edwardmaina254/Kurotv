@@ -976,7 +976,6 @@ export default function AnimeDetails() {
     const toggleMute = () => {
         if (videoRef.current) { videoRef.current.muted = !isMuted; setIsMuted(!isMuted); }
     };
-
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = parseFloat(e.target.value);
         setVolume(val);
@@ -988,7 +987,7 @@ export default function AnimeDetails() {
         setCurrentTime(val);
     };
 
-    const handleSeekEnd = useCallback((e: React.ChangeEvent<HTMLInputElement> | React.PointerEvent<HTMLInputElement>) => {
+    const handleSeekEnd = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
         const val = parseFloat((e.target as HTMLInputElement).value);
         if (videoRef.current) {
             videoRef.current.currentTime = val;
@@ -1153,9 +1152,25 @@ export default function AnimeDetails() {
                                                 <video
                                                     ref={videoRef}
                                                     playsInline
+                                                    crossOrigin="anonymous"
                                                     className="w-full h-full bg-black outline-none"
                                                     style={{ objectFit: 'contain' }}
-                                                />
+                                                >
+                                                    {streamData.subtitles?.filter((s: any) => 
+                                                        !(s.lang && s.lang.toLowerCase() === 'thumbnails') &&
+                                                        !(s.kind && s.kind.toLowerCase() === 'thumbnails') &&
+                                                        !(s.label && s.label.toLowerCase() === 'thumbnails')
+                                                    ).map((sub: any, i: number) => (
+                                                        <track 
+                                                            key={i} 
+                                                            kind="subtitles" 
+                                                            srcLang="en" 
+                                                            label={sub.lang || sub.label || 'English'} 
+                                                            src={sub.url || sub.file} 
+                                                            default={i === 0} 
+                                                        />
+                                                    ))}
+                                                </video>
 
                                                 <div className={`absolute top-0 left-0 w-1/4 h-full z-10 ${!isMouseActive && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'left')}></div>
                                                 <div className={`absolute top-0 left-1/4 w-2/4 h-full z-10 ${!isMouseActive && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onClick={(e) => handleZoneClick(e, 'center')}></div>
@@ -1176,11 +1191,13 @@ export default function AnimeDetails() {
                                                                 <div className="h-full bg-white/20 rounded-full transition-all duration-150" style={{ width: `${bufferedPercent}%` }} />
                                                             </div>
                                                             <input type="range" min="0" max={duration || 100} value={currentTime}
-                                                                onChange={handleSeek}
-                                                                onPointerDown={() => setSeeking(true)}
-                                                                onPointerUp={handleSeekEnd}
-                                                                className="relative z-10 w-full h-1 appearance-none outline-none rounded-full cursor-pointer hover:h-1.5 transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full"
+                                                                onChange={(e) => { setSeeking(true); handleSeek(e); }}
+                                                                onMouseUp={handleSeekEnd}
+                                                                onTouchEnd={handleSeekEnd}
+                                                                onMouseLeave={(e) => { if (seeking) handleSeekEnd(e); }}
+                                                                className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-20"
                                                                 style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
+                                                            <div className="w-full h-1 rounded-full pointer-events-none" style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
                                                             {isHovering && (
                                                                 <div className="absolute bottom-6 left-0 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20"
                                                                     style={{ left: `${hoverPercent}%` }}>
