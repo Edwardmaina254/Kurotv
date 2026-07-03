@@ -374,7 +374,13 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:") || trimmed.startsWith("#")) return rawUri;
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
     const isM3U8 = absolute.split('?')[0].endsWith('.m3u8');
-    const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/stream';
+    
+    // Only proxy M3U8 playlists. Leave TS segments unproxied to save Render bandwidth!
+    if (!isM3U8) {
+        return absolute;
+    }
+    
+    const proxyPath = '/proxy/stream.m3u8';
     return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
   return manifest.split(/\r?\n/).map(line => {
