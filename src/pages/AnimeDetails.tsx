@@ -783,9 +783,8 @@ export default function AnimeDetails() {
                 setQualities(parsedQualities);
                 
                 if (parsedQualities.length > 0) {
-                    const highestQuality = parsedQualities[0].level;
-                    hls!.currentLevel = highestQuality;
-                    setCurrentQuality(highestQuality);
+                    hls!.currentLevel = -1; // -1 means Auto
+                    setCurrentQuality(-1);
                 }
                 
                 restoreProgress();
