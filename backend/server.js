@@ -409,8 +409,7 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     if (!fetchRes.ok) return res.status(502).send("Proxy Stream Error");
 
     let manifestText = await fetchRes.text();
-    manifestText = manifestText.replace(/,\s*CODECS="[^"]+"/gi, '').replace(/CODECS="[^"]+",\s*/gi, '').replace(/CODECS="[^"]+"/gi, '');
-    manifestText = manifestText.replace(/,\s*CODECS=[^,\s]+/gi, '').replace(/CODECS=[^,\s]+,\s*/gi, '').replace(/CODECS=[^,\s]+/gi, '');
+    // Do NOT strip codecs. Hls.js needs them to filter unsupported HEVC streams on Windows.
 
     const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
