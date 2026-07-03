@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -15,26 +16,47 @@ interface HeroBannerProps {
 export default function HeroBanner({ anime, prevAnime, nextAnime, currentIndex, total, onNext, onPrev, onSelect }: HeroBannerProps) {
   const navigate = useNavigate();
 
+  const [imgError, setImgError] = useState(false);
+  const hasBanner = !!anime.bannerImage && !imgError;
+
   if (!anime) return null;
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-bg parallax-container group">
-      {/* Blurred background layer — Animekai-style: fills edges when aspect ratio doesn't match */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden">
-        <img
-          src={anime.bannerImage || anime.image}
-          alt=""
-          className="w-full h-full object-cover object-center scale-110 blur-2xl opacity-60"
-          aria-hidden="true"
-        />
-      </div>
-
-      {/* Foreground image — top-aligned to show faces, not bodies */}
-      <img
-        src={anime.bannerImage || anime.image}
-        alt={anime.title}
-        className="absolute inset-0 w-full h-full object-cover object-top parallax-bg"
-      />
+      {hasBanner ? (
+        <>
+          {/* Blurred background layer — fills edges when aspect ratio doesn't match */}
+          <div className="absolute inset-0 w-full h-full overflow-hidden">
+            <img
+              src={anime.bannerImage}
+              alt=""
+              className="w-full h-full object-cover object-center scale-110 blur-2xl opacity-60"
+              aria-hidden="true"
+              onError={() => setImgError(true)}
+            />
+          </div>
+          {/* Foreground image — top-aligned to show faces */}
+          <img
+            src={anime.bannerImage}
+            alt={anime.title}
+            className="absolute inset-0 w-full h-full object-cover object-top parallax-bg"
+            onError={() => setImgError(true)}
+          />
+        </>
+      ) : (
+        /* Fallback when no banner: show poster as a smaller inset + rich gradient */
+        <div className="absolute inset-0 w-full h-full">
+          <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-bg to-bg" />
+          <div className="absolute -right-20 -top-20 w-96 h-96 rounded-full bg-accent/5 blur-3xl" />
+          <div className="absolute -left-20 -bottom-20 w-80 h-80 rounded-full bg-accent/5 blur-3xl" />
+          <img
+            src={anime.image}
+            alt=""
+            className="absolute right-10 bottom-0 h-[85%] w-auto object-contain opacity-30 mask-gradient-to-l"
+            aria-hidden="true"
+          />
+        </div>
+      )}
 
       <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent z-10" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />

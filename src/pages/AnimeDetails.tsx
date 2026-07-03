@@ -1184,21 +1184,23 @@ export default function AnimeDetails() {
 
                                                 <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-10 md:pt-14 pb-3 md:pb-4 px-3 md:px-5 z-40 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                                                     <div className="w-full flex items-center mb-2 pointer-events-auto">
-                                                        <div ref={seekContainerRef} className="relative w-full h-6 md:h-5 flex items-center cursor-pointer group/seek"
-                                                            onPointerMove={handleSeekHover}
-                                                            onPointerLeave={handleSeekLeave}>
-                                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 rounded-full bg-white/10 overflow-hidden pointer-events-none">
-                                                                <div className="h-full bg-white/20 rounded-full transition-all duration-150" style={{ width: `${bufferedPercent}%` }} />
-                                                            </div>
-                                                            <input type="range" min="0" max={duration || 100} value={currentTime}
-                                                                onChange={(e) => { setSeeking(true); handleSeek(e); }}
-                                                                onMouseUp={handleSeekEnd}
-                                                                onTouchEnd={handleSeekEnd}
-                                                                onMouseLeave={(e) => { if (isSeeking) handleSeekEnd(e); }}
-                                                                className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-20"
-                                                                style={{ background: `linear-gradient(to right, #3b82f6 ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
-                                                            <div className="w-full h-1 rounded-full pointer-events-none" style={{ background: `linear-gradient(to right, #3b82f6 ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
-                                                            <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-blue-500 pointer-events-none z-10 shadow-[0_0_8px_rgba(59,130,246,0.8)]" style={{ left: `calc(${progressPercent}% - 6px)` }} />
+                                                         <div ref={seekContainerRef} className="relative w-full h-6 md:h-5 flex items-center cursor-pointer group/seek"
+                                                             onPointerMove={handleSeekHover}
+                                                             onPointerLeave={handleSeekLeave}>
+                                                              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 rounded-full bg-white/10 overflow-hidden pointer-events-none">
+                                                                  <div className="h-full bg-white/15 rounded-full transition-all duration-150" style={{ width: `${bufferedPercent}%` }} />
+                                                              </div>
+                                                              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 rounded-full pointer-events-none z-10">
+                                                                  <div className="h-full rounded-full bg-white/90 transition-all duration-75" style={{ width: `${progressPercent}%` }} />
+                                                             </div>
+                                                             <input type="range" min="0" max={duration || 100} value={currentTime}
+                                                                 onChange={(e) => { setSeeking(true); handleSeek(e); }}
+                                                                 onMouseUp={handleSeekEnd}
+                                                                 onTouchEnd={handleSeekEnd}
+                                                                 onMouseLeave={(e) => { if (isSeeking) handleSeekEnd(e); }}
+                                                                 className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-20" />
+                                                              <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white pointer-events-none z-10 shadow-[0_0_10px_rgba(59,130,246,0.9)] opacity-0 group-hover/seek:opacity-100 transition-opacity duration-200" style={{ left: `calc(${progressPercent}% - 8px)` }} />
+                                                              <div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-[#3b82f6] pointer-events-none z-10 shadow-[0_0_10px_rgba(59,130,246,0.9)] opacity-100 group-hover/seek:opacity-0 transition-opacity duration-200" style={{ left: `calc(${progressPercent}% - 5px)` }} />
                                                             {isHovering && (
                                                                 <div className="absolute bottom-6 left-0 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20"
                                                                     style={{ left: `${hoverPercent}%` }}>
