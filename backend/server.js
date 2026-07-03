@@ -527,7 +527,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
     try {
       console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } } }`;
+      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format episodes } }`;
       const anilistRes = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -537,33 +537,65 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
       if (!title) return null;
 
-      console.log(`[WATCH] Searching AniNeko for title: "${title}"...`);
-      const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(title));
-      const $search = cheerio.load(searchRes.data);
-      
-      // 1. Gather ALL potential slugs from the search results grid
-      let slugs = [];
-      $search('.nv-anime-thumb').each((i, el) => {
-          const href = $search(el).attr('href');
-          if (href && href.includes('/watch/')) {
-              slugs.push(href.replace('/watch/', ''));
-          }
-      });
-      
-      // If primary search yielded nothing, try the Romaji alternative title
-      if (slugs.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-          console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-          const searchResRomaji = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(anilistData.data.Media.title.romaji));
-          const $searchRomaji = cheerio.load(searchResRomaji.data);
-          $searchRomaji('.nv-anime-thumb').each((i, el) => {
-              const href = $searchRomaji(el).attr('href');
+      const getCandidates = async (searchKeyword) => {
+          console.log(`[WATCH] Searching AniNeko for title: "${searchKeyword}"...`);
+          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(searchKeyword));
+          const $search = cheerio.load(searchRes.data);
+          let cands = [];
+          $search('.nv-anime-thumb').each((i, el) => {
+              const href = $search(el).attr('href');
               if (href && href.includes('/watch/')) {
-                  slugs.push(href.replace('/watch/', ''));
+                  const slug = href.replace('/watch/', '');
+                  const badgeType = $search(el).find('.nv-badge-new').first().text().trim() || $search(el).find('.nv-stat-badge').first().text().trim();
+                  const typeStr = badgeType.toUpperCase();
+                  const ccText = $search(el).find('.nv-stat-cc').text().trim() || $search(el).find('.nv-stat-dub span').text().trim();
+                  const epsCount = parseInt(ccText.replace(/\D/g, '')) || 0;
+                  const titleEl = $search(el).next('.nv-anime-body').find('.nv-anime-title').text().trim();
+                  cands.push({ slug, aniNekoTitle: titleEl, aniNekoType: typeStr, aniNekoEps: epsCount });
               }
           });
+          return cands;
+      };
+
+      let candidates = await getCandidates(title);
+      if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
+          console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
+          candidates = await getCandidates(anilistData.data.Media.title.romaji);
       }
 
-      if (slugs.length === 0) return null;
+      if (candidates.length === 0) return null;
+
+      // Intelligent Scoring Algorithm
+      const normalize = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
+      const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
+      const anilistFormat = anilistData.data.Media.format || '';
+      const anilistEps = anilistData.data.Media.episodes || 0;
+
+      candidates.forEach(c => {
+          let score = 0;
+          const cTitleNorm = normalize(c.aniNekoTitle);
+          if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
+              score += 50;
+          } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
+              score += 20;
+          }
+
+          if (anilistFormat === 'TV' && c.aniNekoType === 'TV') score += 30;
+          else if (anilistFormat === 'MOVIE' && c.aniNekoType === 'MOVIE') score += 30;
+          else if ((anilistFormat === 'OVA' || anilistFormat === 'ONA') && (c.aniNekoType === 'OVA' || c.aniNekoType === 'ONA')) score += 30;
+
+          if (anilistEps > 0 && c.aniNekoEps > 0) {
+              const diff = Math.abs(anilistEps - c.aniNekoEps);
+              if (diff === 0) score += 20;
+              else if (diff <= 10) score += 10;
+          }
+          
+          c.score = score;
+      });
+
+      candidates.sort((a, b) => b.score - a.score);
+      const slugs = candidates.map(c => c.slug);
 
       // 2. Loop through every slug found until one successfully returns a master playlist
       for (const currentSlug of slugs) {

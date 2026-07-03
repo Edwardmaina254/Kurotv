@@ -1196,8 +1196,9 @@ export default function AnimeDetails() {
                                                                 onTouchEnd={handleSeekEnd}
                                                                 onMouseLeave={(e) => { if (isSeeking) handleSeekEnd(e); }}
                                                                 className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-20"
-                                                                style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
-                                                            <div className="w-full h-1 rounded-full pointer-events-none" style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
+                                                                style={{ background: `linear-gradient(to right, #3b82f6 ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
+                                                            <div className="w-full h-1 rounded-full pointer-events-none" style={{ background: `linear-gradient(to right, #3b82f6 ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
+                                                            <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-blue-500 pointer-events-none z-10 shadow-[0_0_8px_rgba(59,130,246,0.8)]" style={{ left: `calc(${progressPercent}% - 6px)` }} />
                                                             {isHovering && (
                                                                 <div className="absolute bottom-6 left-0 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20"
                                                                     style={{ left: `${hoverPercent}%` }}>
