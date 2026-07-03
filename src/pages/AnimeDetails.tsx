@@ -782,10 +782,8 @@ export default function AnimeDetails() {
                 const parsedQualities = data.levels.map((level, index) => ({ height: level.height, level: index })).reverse();
                 setQualities(parsedQualities);
                 
-                if (parsedQualities.length > 0) {
-                    hls!.currentLevel = -1; // -1 means Auto
-                    setCurrentQuality(-1);
-                }
+                // Let hls.js remain in its default Auto (-1) state
+                setCurrentQuality(-1);
                 
                 restoreProgress();
                 video.play().catch(e => console.warn("Play interrupted:", e));
