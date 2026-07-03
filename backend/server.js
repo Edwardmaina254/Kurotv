@@ -659,6 +659,14 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                isIframe: false
             }))
          };
+         
+         if (payload.subtitles && payload.subtitles.length > 0) {
+             proxyWrapped.subtitles = payload.subtitles.map(sub => ({
+                 ...sub,
+                 url: `${baseUrl}/proxy/stream?url=${encodeURIComponent(sub.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`
+             }));
+         }
+         
          const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
          setCache(cacheKey, enrichedPayload);
          return res.json(enrichedPayload);
