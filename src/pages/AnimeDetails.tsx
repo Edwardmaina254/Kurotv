@@ -1194,7 +1194,7 @@ export default function AnimeDetails() {
                                                                 onChange={(e) => { setSeeking(true); handleSeek(e); }}
                                                                 onMouseUp={handleSeekEnd}
                                                                 onTouchEnd={handleSeekEnd}
-                                                                onMouseLeave={(e) => { if (seeking) handleSeekEnd(e); }}
+                                                                onMouseLeave={(e) => { if (isSeeking) handleSeekEnd(e); }}
                                                                 className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-20"
                                                                 style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
                                                             <div className="w-full h-1 rounded-full pointer-events-none" style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, rgba(255,255,255,0.2) ${progressPercent}%)` }} />
