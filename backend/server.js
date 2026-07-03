@@ -425,24 +425,35 @@ app.get('/proxy/stream', async (req, res) => {
     const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*", "Accept-Encoding": "identity" };
     if (req.headers.range) headers.Range = req.headers.range;
 
-    const fetchRes = await fetch(targetUrl, { headers, redirect: 'follow' });
-    if (!fetchRes.ok) return res.status(502).send();
+    const response = await axios({
+        method: 'get',
+        url: targetUrl,
+        headers,
+        responseType: 'stream',
+        validateStatus: () => true,
+        maxRedirects: 5
+    });
 
-    let upstreamType = (fetchRes.headers.get('content-type') || 'video/mp2t').toLowerCase();
+    if (response.status >= 400) return res.status(502).send();
+
+    let upstreamType = (response.headers['content-type'] || 'video/mp2t').toLowerCase();
     if (upstreamType.includes('audio/,') || upstreamType.includes('text/plain')) upstreamType = 'video/mp2t';
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
     res.setHeader('Content-Type', upstreamType);
-    if (fetchRes.headers.has('content-range')) res.setHeader('Content-Range', fetchRes.headers.get('content-range'));
-    if (fetchRes.headers.has('accept-ranges')) res.setHeader('Accept-Ranges', fetchRes.headers.get('accept-ranges'));
+    
+    if (response.headers['content-length']) res.setHeader('Content-Length', response.headers['content-length']);
+    if (response.headers['content-range']) res.setHeader('Content-Range', response.headers['content-range']);
+    if (response.headers['accept-ranges']) res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
 
-    res.status(fetchRes.status);
-    const nodeStream = Readable.fromWeb(fetchRes.body);
-    req.on('close', () => nodeStream.destroy());
-    nodeStream.on('error', () => { if (!res.headersSent) res.status(502).end(); else res.end(); });
-    res.on('error', () => { nodeStream.destroy(); });
-    nodeStream.pipe(res);
+    res.status(response.status);
+    
+    response.data.on('error', () => { if (!res.headersSent) res.status(502).end(); else res.end(); });
+    req.on('close', () => response.data.destroy());
+    res.on('error', () => response.data.destroy());
+    
+    response.data.pipe(res);
   } catch (err) { return res.status(502).send("Proxy Stream Error"); }
 });
 
