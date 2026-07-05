@@ -164,7 +164,10 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
     
     setCache(cacheKey, formatted, 0.5);
     return res.json({ results: formatted });
-  } catch { return res.json({ results: [] }); }
+  } catch (err) { 
+    console.error("[CRON/FALLBACK] Failed top-airing:", err.message);
+    return res.json({ results: [] }); 
+  }
 });
 
 app.get('/anime/zoro/recent-episodes', async (req, res) => {
@@ -195,7 +198,10 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
     const finalRecent = unique.slice(0, 20);
     setCache(cacheKey, finalRecent, 0.5);
     return res.json({ results: finalRecent });
-  } catch { return res.json({ results: [] }); }
+  } catch (err) { 
+    console.error("[CRON/FALLBACK] Failed recent-episodes:", err.message);
+    return res.json({ results: [] }); 
+  }
 });
 
 app.get('/anime/zoro/schedule', async (req, res) => {
@@ -231,7 +237,10 @@ app.get('/anime/zoro/schedule', async (req, res) => {
     
     setCache(cacheKey, unique, 1);
     return res.json({ results: unique });
-  } catch { return res.json({ results: [] }); }
+  } catch (err) { 
+    console.error("[CRON/FALLBACK] Failed schedule:", err.message);
+    return res.json({ results: [] }); 
+  }
 });
 
 app.get('/anime/zoro/search', async (req, res) => {
