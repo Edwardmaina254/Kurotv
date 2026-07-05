@@ -706,6 +706,40 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
      console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
   }
   
+  // 🟢 NEW GLOBAL IFRAME FALLBACK FOR RELEASING ANIME OR CLOUDFLARE BLOCKS
+  try {
+      console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${requestedAnimeId}`);
+      const aniZipRes = await axios.get(`https://api.ani.zip/mappings?anilist_id=${requestedAnimeId}`);
+      const tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
+      const episodesMap = aniZipRes.data?.episodes;
+      
+      if (tmdbId && episodesMap) {
+          const epData = episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum);
+          if (epData && epData.seasonNumber) {
+              const sNum = epData.seasonNumber;
+              const eNum = epData.episodeNumber;
+              console.log(`[WATCH] Mapped to TMDB ID: ${tmdbId}, Season: ${sNum}, Episode: ${eNum}`);
+              
+              const payload = {
+                  sources: [
+                      { url: `https://vidsrc.me/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                      { url: `https://vidsrc.cc/v2/embed/tv/${tmdbId}/${sNum}/${eNum}`, isM3U8: false, isIframe: true },
+                      { url: `https://vidsrc.net/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                      { url: `https://vidsrc.in/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
+                  ],
+                  subtitles: []
+              };
+              
+              setCache(cacheKey, payload);
+              return res.json(payload);
+          } else {
+              console.warn(`[WATCH] AniZip episode mapping not found for epNum: ${epNum}`);
+          }
+      }
+  } catch (fallbackErr) {
+      console.error("[WATCH] Iframe Fallback failed:", fallbackErr.message);
+  }
+
   // 🔥 Fetch fresh AniList details to see if this episode just aired or hasn't aired yet
   try {
     const aniListRes = await axios.post('https://graphql.anilist.co', {
