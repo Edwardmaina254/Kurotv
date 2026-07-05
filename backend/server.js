@@ -162,7 +162,7 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
       rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
     
-    setCache(cacheKey, formatted, 0.5);
+    setCache(cacheKey, formatted, 2);
     return res.json({ results: formatted });
   } catch (err) { 
     console.error("[CRON/FALLBACK] Failed top-airing:", err.message);
@@ -793,4 +793,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
 app.listen(preferredPort, host, () => {
   console.log(`🔥 KuroTV API is permanently locked and running at http://${host}:${preferredPort}`);
+  
+  // ⚡ Pre-warm caches asynchronously to prevent slow loading times for the first user after a reboot
+  setTimeout(() => {
+    console.log("[CACHE] Pre-warming homepage caches...");
+    axios.get(`http://127.0.0.1:${preferredPort}/anime/zoro/top-airing`).catch(() => null);
+    axios.get(`http://127.0.0.1:${preferredPort}/anime/zoro/recent-episodes`).catch(() => null);
+  }, 3000);
 });
