@@ -729,26 +729,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
       console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${requestedAnimeId}`);
       
-      // Check if anime is new enough to allow Vidsrc fallback
-      let allowVidsrc = false;
-      try {
-          const aniListRes = await axios.post('https://graphql.anilist.co', {
-              query: `query ($id: Int) { Media (id: $id, type: ANIME) { startDate { year } } }`,
-              variables: { id: parseInt(requestedAnimeId) }
-          });
-          const startYear = aniListRes.data?.data?.Media?.startDate?.year || 0;
-          if (startYear >= 2025) {
-              allowVidsrc = true;
-          }
-      } catch (e) {
-          console.warn("[WATCH] Failed to verify anime start year for Vidsrc fallback.");
-      }
-
-      if (!allowVidsrc) {
-          console.warn(`[WATCH] Vidsrc fallback BLOCKED for AniList ID: ${requestedAnimeId}. Only new anime (2025+) are allowed to use Vidsrc.`);
-          return res.status(503).json({ error: "Stream temporarily unavailable. Vidsrc fallback disabled for non-airing anime." });
-      }
-
       const aniZipRes = await axios.get(`https://api.ani.zip/mappings?anilist_id=${requestedAnimeId}`);
       let tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
       let imdbId = aniZipRes.data?.mappings?.imdb_id;

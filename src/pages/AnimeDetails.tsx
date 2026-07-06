@@ -638,21 +638,17 @@ export default function AnimeDetails() {
 
             const onlyIframes = data.sources && data.sources.length > 0 && data.sources.every((s: any) => s.isIframe);
 
-            if (data.error || !data.sources || data.sources.length === 0 || onlyIframes) {
-                // If we only have iframes or no sources, just use the data returned (which has the iframe fallbacks)
-                if (data.sources && data.sources.length > 0) {
-                    console.log("[WATCH] Engaging backend iframe fallbacks...");
+            // Remove '|| onlyIframes' from the error check so the iframe can actually load!
+            if (data.error || !data.sources || data.sources.length === 0) {
+                if (data.error === "PREMIERE_AWAITING") {
+                    setStreamError(`Episode ${data.episode} has not aired yet. Airs on: ${new Date(data.airingAt * 1000).toLocaleString()}`);
+                } else if (data.error === "UPLOADING") {
+                    setStreamError(`Episode ${data.episode} just aired! Encoders are currently ripping and uploading it. Please check back in 1-3 hours.`);
                 } else {
-                    if (data.error === "PREMIERE_AWAITING") {
-                        setStreamError(`Episode ${data.episode} has not aired yet. Airs on: ${new Date(data.airingAt * 1000).toLocaleString()}`);
-                    } else if (data.error === "UPLOADING") {
-                        setStreamError(`Episode ${data.episode} just aired! Encoders are currently ripping and uploading it. Please check back in 1-3 hours.`);
-                    } else {
-                        setStreamError(data.error || "Stream Unavailable. All streaming providers failed to respond.");
-                    }
-                    setIsFetchingStream(false);
-                    return;
+                    setStreamError(data.error || "Stream Unavailable. All streaming providers failed to respond.");
                 }
+                setIsFetchingStream(false);
+                return;
             }
 
             if (data.intro || data.outro) {
