@@ -914,6 +914,23 @@ export default function AnimeDetails() {
                         newSet.add(activeEpisode.id.toString());
                         return newSet;
                     });
+                    
+                    if (user && Math.abs(video.currentTime - lastSavedTimeRef.current) > 4) {
+                        lastSavedTimeRef.current = video.currentTime;
+                        supabase.from('watch_history').upsert({
+                            user_id: user.id,
+                            anime_id: playingSeasonId,
+                            episode_id: activeEpisode.id.toString(),
+                            episode_number: activeEpisode.number,
+                            anime_title: currentActiveSeasonObj?.title || 'Unknown Title',
+                            anime_image: currentActiveSeasonObj?.image || currentActiveSeasonObj?.bannerImage || '',
+                            progress: video.duration,
+                            duration: video.duration,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'user_id, anime_id' }).then(({ error }) => {
+                            if (error) console.error("History sync error:", error);
+                        });
+                    }
                 } else {
                     localStorage.setItem(progressKey, video.currentTime.toString());
 
@@ -924,8 +941,8 @@ export default function AnimeDetails() {
                             anime_id: playingSeasonId,
                             episode_id: activeEpisode.id.toString(),
                             episode_number: activeEpisode.number,
-                            anime_title: currentActiveSeasonObj.title,
-                            anime_image: currentActiveSeasonObj.image || currentActiveSeasonObj.bannerImage,
+                            anime_title: currentActiveSeasonObj?.title || 'Unknown Title',
+                            anime_image: currentActiveSeasonObj?.image || currentActiveSeasonObj?.bannerImage || '',
                             progress: video.currentTime,
                             duration: video.duration,
                             updated_at: new Date().toISOString()
