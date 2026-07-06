@@ -228,8 +228,14 @@ export default function AnimeDetails() {
             const apiUrl = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
 
             try {
-                const initialInfoRes = await fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null);
+                // 1. Fetch Core Data (Parallel)
+                const [initialInfoRes, baseEpsRes] = await Promise.all([
+                    fetch(`${apiUrl}/anime/zoro/info/${id}`).catch(() => null),
+                    fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null)
+                ]);
+
                 const initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
+                const baseEpsData = baseEpsRes && baseEpsRes.ok ? await baseEpsRes.json() : { episodes: [] };
 
                 if (cancelRef.cancelled) return;
                 setAnimeFetchResult(initialInfo);
@@ -240,10 +246,7 @@ export default function AnimeDetails() {
                     return;
                 }
 
-                const baseEpsRes = await fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null);
-                const baseEpsData = baseEpsRes && baseEpsRes.ok ? await baseEpsRes.json() : { episodes: [] };
                 const baseEpisodes = baseEpsData.episodes || [];
-
                 const safeBaseSeason: ExtendedAnimeDetails = {
                     id: initialInfo.id?.toString() || id,
                     title: initialInfo.title,
@@ -262,112 +265,122 @@ export default function AnimeDetails() {
                     _sortScore: 0
                 };
 
+                // 2. Render Immediately with Core Data
+                setChronologicalSeasons([safeBaseSeason]);
+                setLoading(false);
+                
+                const globalWatched = new Set<string>();
+                (safeBaseSeason.episodes || []).forEach(ep => {
+                    if (localStorage.getItem(`kuro-watched-${safeBaseSeason.id}-${ep.id}`) === 'true') {
+                        globalWatched.add(ep.id.toString());
+                    }
+                });
+                setWatchedEpisodes(globalWatched);
+
+                // 3. Lazy Load Related Seasons in Background
                 const relatedIds = (initialInfo.relations || [])
                     .map((r: Relation) => parseInt(r.id.toString()))
                     .filter((n: number) => !isNaN(n));
 
-                const chainCollected = new Set<number>([parseInt(id), ...relatedIds]);
-                const allIdsToFetch = Array.from(chainCollected);
-
-                const sortingQuery = `
-                    query($ids: [Int]) {
-                        Page(page: 1, perPage: 50) {
-                            media(id_in: $ids, type: ANIME) {
-                                id idMal startDate { year month day } format status averageScore description genres bannerImage coverImage { extraLarge } title { english romaji }
+                if (relatedIds.length > 0) {
+                    const chainCollected = new Set<number>([parseInt(id), ...relatedIds]);
+                    const allIdsToFetch = Array.from(chainCollected);
+                    const sortingQuery = `
+                        query($ids: [Int]) {
+                            Page(page: 1, perPage: 50) {
+                                media(id_in: $ids, type: ANIME) {
+                                    id idMal startDate { year month day } format status averageScore description genres bannerImage coverImage { extraLarge } title { english romaji }
+                                }
                             }
                         }
-                    }
-                `;
+                    `;
 
-                let compiledSeasons: ExtendedAnimeDetails[] = [];
-                try {
-                    const [sortingRes, ...episodesResponses] = await Promise.all([
-                        fetch('https://graphql.anilist.co', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query: sortingQuery, variables: { ids: allIdsToFetch } })
-                        }).then(r => r.json()).catch(() => null),
+                    try {
+                        const [sortingRes, ...episodesResponses] = await Promise.all([
+                            fetch('https://graphql.anilist.co', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ query: sortingQuery, variables: { ids: allIdsToFetch } })
+                            }).then(r => r.json()).catch(() => null),
 
-                        ...allIdsToFetch.map(seasonId =>
-                            fetch(`${apiUrl}/anime/zoro/episodes/${seasonId}`)
-                                .then(r => r.json())
-                                .catch(() => ({ episodes: [] }))
-                        )
-                    ]);
+                            ...allIdsToFetch.map(seasonId =>
+                                fetch(`${apiUrl}/anime/zoro/episodes/${seasonId}`)
+                                    .then(r => r.json())
+                                    .catch(() => ({ episodes: [] }))
+                            )
+                        ]);
 
-                    const rawMediaNodes = sortingRes?.data?.Page?.media || [];
-                    const targetMalNode = rawMediaNodes.find((m: any) => m.id.toString() === id);
-                    if (targetMalNode?.idMal) setMalId(targetMalNode.idMal);
+                        if (cancelRef.cancelled) return;
 
-                    const episodesMap = new Map();
-                    allIdsToFetch.forEach((seasonId, index) => {
-                        episodesMap.set(seasonId.toString(), episodesResponses[index]?.episodes || []);
-                    });
+                        const rawMediaNodes = sortingRes?.data?.Page?.media || [];
+                        const targetMalNode = rawMediaNodes.find((m: any) => m.id.toString() === id);
+                        if (targetMalNode?.idMal) setMalId(targetMalNode.idMal);
 
-                    if (rawMediaNodes.length > 0) {
-                        compiledSeasons = rawMediaNodes.map((m: any) => {
-                            const year = m.startDate?.year || 9999;
-                            const month = m.startDate?.month || 1;
-                            const day = m.startDate?.day || 1;
-                            const sortScore = year * 10000 + month * 100 + day;
-
-                            let dispTitle = initialInfo.id.toString() === m.id.toString() ? initialInfo.title : (m.title?.english || m.title?.romaji || "");
-                            if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
-                                const fmt = m.format === 'TV' ? 'Season' : (m.format || 'Entry');
-                                dispTitle = `${initialInfo.title?.split('Season')[0]?.trim() || 'Anime'} (${fmt})`;
-                            }
-
-                            return {
-                                id: m.id.toString(),
-                                title: dispTitle,
-                                image: m.coverImage?.extraLarge || "",
-                                bannerImage: m.bannerImage || m.coverImage?.extraLarge || "",
-                                description: m.description || "No synopsis available.",
-                                genres: m.genres || [],
-                                rating: m.averageScore || "N/A",
-                                status: m.status || "UNKNOWN",
-                                type: m.format || "TV",
-                                releaseDate: m.startDate?.year ? `${m.startDate.year}-${m.startDate.month || 1}-${m.startDate.day || 1}` : "Unknown",
-                                episodes: episodesMap.get(m.id.toString()) || [],
-                                totalEpisodes: m.episodes || 0,
-                                url: `/anime/${m.id}`,
-                                _sortScore: sortScore
-                            };
+                        const episodesMap = new Map();
+                        allIdsToFetch.forEach((seasonId, index) => {
+                            episodesMap.set(seasonId.toString(), episodesResponses[index]?.episodes || []);
                         });
-                    }
-                } catch (sortErr) {
-                    console.warn("Secondary sorting fallback engaged.");
-                }
 
-                if (compiledSeasons.length === 0) compiledSeasons = [safeBaseSeason];
+                        if (rawMediaNodes.length > 0) {
+                            let compiledSeasons = rawMediaNodes.map((m: any) => {
+                                const year = m.startDate?.year || 9999;
+                                const month = m.startDate?.month || 1;
+                                const day = m.startDate?.day || 1;
+                                const sortScore = year * 10000 + month * 100 + day;
 
-                let isolatedSeasons = compiledSeasons;
-                isolatedSeasons.sort((a: any, b: any) => a._sortScore - b._sortScore);
+                                let dispTitle = initialInfo.id.toString() === m.id.toString() ? initialInfo.title : (m.title?.english || m.title?.romaji || "");
+                                if (!dispTitle || dispTitle.toLowerCase().includes('unknown')) {
+                                    const fmt = m.format === 'TV' ? 'Season' : (m.format || 'Entry');
+                                    dispTitle = `${initialInfo.title?.split('Season')[0]?.trim() || 'Anime'} (${fmt})`;
+                                }
 
-                let rollingSeasonNumber = 1;
-                isolatedSeasons.forEach((s) => {
-                    s._shortLabel = `Season ${rollingSeasonNumber}`;
-                    rollingSeasonNumber++;
-                });
+                                return {
+                                    id: m.id.toString(),
+                                    title: dispTitle,
+                                    image: m.coverImage?.extraLarge || "",
+                                    bannerImage: m.bannerImage || m.coverImage?.extraLarge || "",
+                                    description: m.description || "No synopsis available.",
+                                    genres: m.genres || [],
+                                    rating: m.averageScore || "N/A",
+                                    status: m.status || "UNKNOWN",
+                                    type: m.format || "TV",
+                                    releaseDate: m.startDate?.year ? `${m.startDate.year}-${m.startDate.month || 1}-${m.startDate.day || 1}` : "Unknown",
+                                    episodes: episodesMap.get(m.id.toString()) || [],
+                                    totalEpisodes: m.episodes || 0,
+                                    url: `/anime/${m.id}`,
+                                    _sortScore: sortScore
+                                };
+                            });
 
-                const finalOrdered = isolatedSeasons.filter(s => {
-                    if (s.id.toString() === id) return true;
-                    return (s.episodes || []).length > 0;
-                });
+                            compiledSeasons.sort((a: any, b: any) => a._sortScore - b._sortScore);
 
-                if (cancelRef.cancelled) return;
-                setChronologicalSeasons(finalOrdered.length > 0 ? finalOrdered : isolatedSeasons);
-                setLoading(false);
+                            let rollingSeasonNumber = 1;
+                            compiledSeasons.forEach((s: any) => {
+                                s._shortLabel = `Season ${rollingSeasonNumber}`;
+                                rollingSeasonNumber++;
+                            });
 
-                const globalWatched = new Set<string>();
-                isolatedSeasons.forEach(season => {
-                    (season.episodes || []).forEach(ep => {
-                        if (localStorage.getItem(`kuro-watched-${season.id}-${ep.id}`) === 'true') {
-                            globalWatched.add(ep.id.toString());
+                            const finalOrdered = compiledSeasons.filter((s: any) => {
+                                if (s.id.toString() === id) return true;
+                                return (s.episodes || []).length > 0;
+                            });
+
+                            setChronologicalSeasons(finalOrdered.length > 0 ? finalOrdered : compiledSeasons);
+                            
+                            const newGlobalWatched = new Set<string>();
+                            compiledSeasons.forEach((season: any) => {
+                                (season.episodes || []).forEach((ep: any) => {
+                                    if (localStorage.getItem(`kuro-watched-${season.id}-${ep.id}`) === 'true') {
+                                        newGlobalWatched.add(ep.id.toString());
+                                    }
+                                });
+                            });
+                            setWatchedEpisodes(newGlobalWatched);
                         }
-                    });
-                });
-                setWatchedEpisodes(globalWatched);
+                    } catch (err) {
+                        console.warn("Background seasons fetch failed", err);
+                    }
+                }
 
                 let targetEpToPlay = null;
                 let seasonContextId = id;
