@@ -1114,8 +1114,24 @@ export default function AnimeDetails() {
 
     if (error || chronologicalSeasons.length === 0) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <h2 className="text-lg font-bold text-muted">Error Loading Anime Details</h2>
+            <div className="min-h-screen flex flex-col items-center justify-center bg-bg p-6 text-center">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 border border-danger/30 bg-danger/10">
+                    <span className="text-danger font-black text-2xl">!</span>
+                </div>
+                <h2 className="text-xl md:text-2xl font-bold text-white mb-2">
+                    {error ? "Anime Not Found" : "Error Loading Anime Details"}
+                </h2>
+                <p className="text-muted text-sm md:text-base max-w-md mb-6">
+                    {error === "Anime data not found." 
+                        ? "This anime is no longer available in our database. It may have been removed or merged into another series by our provider. If you accessed this from your Watch History, please remove it to prevent this error."
+                        : error || "No seasons or episodes could be loaded for this title."}
+                </p>
+                <button 
+                    onClick={() => navigate(-1)} 
+                    className="px-6 py-2 bg-surface hover:bg-surface-light border border-border text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+                >
+                    <ArrowLeft className="w-4 h-4" /> Go Back
+                </button>
             </div>
         );
     }
