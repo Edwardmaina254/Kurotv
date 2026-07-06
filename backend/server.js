@@ -556,8 +556,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (!title) return null;
 
       const getCandidates = async (searchKeyword) => {
-          console.log(`[WATCH] Searching AniNeko for title: "${searchKeyword}"...`);
-          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(searchKeyword));
+          // Clean the keyword to improve search results (remove years like (2011) and split at colon)
+          let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+          if (cleanKeyword.includes(':')) cleanKeyword = cleanKeyword.split(':')[0].trim();
+          
+          console.log(`[WATCH] Searching AniNeko for title: "${cleanKeyword}"...`);
+          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(cleanKeyword));
           const $search = cheerio.load(searchRes.data);
           let cands = [];
           $search('.nv-anime-thumb').each((i, el) => {
@@ -602,6 +606,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
               score += 50;
           } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
+              score += 20;
+          } else if (cTitleNorm && (anilistTitleNorm1.includes(cTitleNorm) || anilistTitleNorm2.includes(cTitleNorm))) {
               score += 20;
           }
 
