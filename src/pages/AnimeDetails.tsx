@@ -277,6 +277,8 @@ export default function AnimeDetails() {
                 });
                 setWatchedEpisodes(globalWatched);
 
+                let fullSeasonsList = [safeBaseSeason];
+
                 // 3. Lazy Load Related Seasons in Background
                 const relatedIds = (initialInfo.relations || [])
                     .map((r: Relation) => parseInt(r.id.toString()))
@@ -365,7 +367,8 @@ export default function AnimeDetails() {
                                 return (s.episodes || []).length > 0;
                             });
 
-                            setChronologicalSeasons(finalOrdered.length > 0 ? finalOrdered : compiledSeasons);
+                            fullSeasonsList = finalOrdered.length > 0 ? finalOrdered : compiledSeasons;
+                            setChronologicalSeasons(fullSeasonsList);
                             
                             const newGlobalWatched = new Set<string>();
                             compiledSeasons.forEach((season: any) => {
@@ -391,9 +394,9 @@ export default function AnimeDetails() {
                     const extractedNumMatch = epFromUrl.match(/\d+$/);
                     const targetNum = extractedNumMatch ? extractedNumMatch[0] : epFromUrl;
 
-                    const requestedSeason = isolatedSeasons.find(s => s.id.toString() === id);
+                    const requestedSeason = fullSeasonsList.find((s: any) => s.id.toString() === id);
                     if (requestedSeason) {
-                        const foundInRequested = (requestedSeason.episodes || []).find(e =>
+                        const foundInRequested = (requestedSeason.episodes || []).find((e: any) =>
                             e.id.toString() === epFromUrl.toString() ||
                             e.number.toString() === epFromUrl.toString() ||
                             e.number.toString() === targetNum ||
@@ -406,8 +409,8 @@ export default function AnimeDetails() {
                     }
 
                     if (!targetEpToPlay) {
-                        for (const s of isolatedSeasons) {
-                            const found = (s.episodes || []).find(e =>
+                        for (const s of fullSeasonsList) {
+                            const found = (s.episodes || []).find((e: any) =>
                                 e.id.toString() === epFromUrl.toString() ||
                                 e.number.toString() === epFromUrl.toString() ||
                                 e.number.toString() === targetNum ||
@@ -421,8 +424,8 @@ export default function AnimeDetails() {
                 if (!targetEpToPlay) {
                     const localLastEp = localStorage.getItem(`kuro-last-ep-${id}`);
                     if (localLastEp) {
-                        for (const s of isolatedSeasons) {
-                            const found = (s.episodes || []).find(e => e.id.toString() === localLastEp);
+                        for (const s of fullSeasonsList) {
+                            const found = (s.episodes || []).find((e: any) => e.id.toString() === localLastEp);
                             if (found) { targetEpToPlay = found; seasonContextId = s.id; break; }
                         }
                     }
@@ -440,9 +443,10 @@ export default function AnimeDetails() {
                     handlePlayEpisode(targetEpToPlay, seasonContextId);
                 }
 
-            } catch (err) {
+            } catch (err: any) {
                 if (!cancelRef.cancelled) {
-                    setError("Failed to compile chronological seasons.");
+                    console.error("fetchFullChronology error:", err);
+                    setError(`Failed to compile chronological seasons. Error: ${err.message}`);
                     setLoading(false);
                 }
             }
