@@ -20,6 +20,11 @@
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.1",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "puppeteer-core": "^25.3.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "rss-parser": "^3.13.0",
+    "torrent-stream": "^1.2.1"
   }
 }

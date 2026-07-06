@@ -8,6 +8,11 @@ import { createClient } from '@supabase/supabase-js';
 import { createDecipheriv, createHash } from 'crypto';
 import { Readable } from 'stream';
 import 'dotenv/config';
+import torrentStream from 'torrent-stream';
+import Parser from 'rss-parser';
+
+const rssParser = new Parser();
+const activeTorrents = new Map(); // Global cache for running torrent engines
 
 // 🔥 GLOBAL TLS OVERRIDE: Defeats strict Node.js SSL handshake drops
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -472,6 +477,8 @@ app.get('/proxy/stream', async (req, res) => {
 });
 
 // ==========================================
+// 🌊 TORRENT ENGINE (REMOVED: MKV CODEC LIMITATIONS)
+// ==========================================
 // 🛑 WATCH ROUTE (DYNAMIC CLOUD LINKING)
 // ==========================================
 app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
@@ -719,31 +726,66 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
       console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${requestedAnimeId}`);
       const aniZipRes = await axios.get(`https://api.ani.zip/mappings?anilist_id=${requestedAnimeId}`);
-      const tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
+      let tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
+      let imdbId = aniZipRes.data?.mappings?.imdb_id;
       const episodesMap = aniZipRes.data?.episodes;
       
-      if (tmdbId && episodesMap) {
+      let sNum = 1;
+      let eNum = epNum;
+
+      if (episodesMap && (episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum))) {
           const epData = episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum);
-          if (epData && epData.seasonNumber) {
-              const sNum = epData.seasonNumber;
-              const eNum = epData.episodeNumber;
-              console.log(`[WATCH] Mapped to TMDB ID: ${tmdbId}, Season: ${sNum}, Episode: ${eNum}`);
-              
-              const payload = {
-                  sources: [
-                      { url: `https://vidsrc.me/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                      { url: `https://vidsrc.cc/v2/embed/tv/${tmdbId}/${sNum}/${eNum}`, isM3U8: false, isIframe: true },
-                      { url: `https://vidsrc.net/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                      { url: `https://vidsrc.in/embed/tv?tmdb=${tmdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
-                  ],
-                  subtitles: []
-              };
-              
-              setCache(cacheKey, payload);
-              return res.json(payload);
-          } else {
-              console.warn(`[WATCH] AniZip episode mapping not found for epNum: ${epNum}`);
+          sNum = epData.seasonNumber || 1;
+          eNum = epData.episodeNumber || epNum;
+      }
+
+      if (!tmdbId && !imdbId) {
+          console.log(`[WATCH] AniZip missing TMDB/IMDB IDs for AniList ID: ${requestedAnimeId}. Searching IMDB fallback...`);
+          try {
+              const aniListRes = await axios.post('https://graphql.anilist.co', {
+                  query: `query ($id: Int) { Media (id: $id, type: ANIME) { title { english romaji } } }`,
+                  variables: { id: parseInt(requestedAnimeId) }
+              });
+              const title = aniListRes.data?.data?.Media?.title?.english || aniListRes.data?.data?.Media?.title?.romaji;
+              if (title) {
+                  let searchTitle = title;
+                  const seasonMatch = title.match(/Season (\d+)|(\d+)(?:nd|th|rd|st) Season/i);
+                  if (seasonMatch) {
+                      sNum = parseInt(seasonMatch[1] || seasonMatch[2]);
+                      searchTitle = title.replace(/Season \d+|\d+(?:nd|th|rd|st) Season/i, '').trim();
+                      // Strip trailing hyphens or colons
+                      searchTitle = searchTitle.replace(/[-:]$/, '').trim();
+                  }
+
+                  console.log(`[WATCH] Querying IMDB with stripped title: "${searchTitle}"`);
+                  const imdbSearch = await axios.get(`https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(searchTitle)}.json`);
+                  const firstMatch = imdbSearch.data?.d?.[0];
+                  if (firstMatch && firstMatch.id) {
+                      imdbId = firstMatch.id;
+                      console.log(`[WATCH] Successfully mapped to IMDB ID via title search: ${imdbId}, Season: ${sNum}`);
+                  }
+              }
+          } catch (e) {
+              console.warn(`[WATCH] IMDB Search Fallback Failed:`, e.message);
           }
+      }
+
+      if (tmdbId || imdbId) {
+          console.log(`[WATCH] Loading Iframe Fallback for TMDB: ${tmdbId || 'N/A'}, IMDB: ${imdbId || 'N/A'}, Season: ${sNum}, Episode: ${eNum}`);
+          const idPath = tmdbId ? tmdbId : imdbId;
+          const payload = {
+              sources: [
+                  { url: `https://vidsrc.me/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                  { url: `https://vidsrc.to/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                  { url: `https://vidsrc.pm/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
+              ],
+              subtitles: []
+          };
+          
+          setCache(cacheKey, payload);
+          return res.json(payload);
+      } else {
+          console.warn(`[WATCH] Completely failed to resolve TMDB or IMDB ID for epNum: ${epNum}`);
       }
   } catch (fallbackErr) {
       console.error("[WATCH] Iframe Fallback failed:", fallbackErr.message);
