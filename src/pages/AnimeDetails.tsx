@@ -482,7 +482,7 @@ export default function AnimeDetails() {
                 }
 
                 if (!targetEpToPlay) {
-                    const currentRequestedSeason = isolatedSeasons.find(s => s.id.toString() === id) || isolatedSeasons[0];
+                    const currentRequestedSeason = fullSeasonsList.find((s: any) => s.id.toString() === id) || fullSeasonsList[0];
                     if (currentRequestedSeason && currentRequestedSeason.episodes && currentRequestedSeason.episodes.length > 0) {
                         targetEpToPlay = currentRequestedSeason.episodes[0];
                         seasonContextId = currentRequestedSeason.id;
