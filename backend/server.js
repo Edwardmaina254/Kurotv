@@ -336,7 +336,10 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
     const ttl = payloadObj.status === 'RELEASING' ? 1 : 12;
     setCache(cacheKey, payloadObj, ttl);
     return res.json(payloadObj);
-  } catch { res.status(404).json({ error: "Not found" }); }
+  } catch (err) { 
+    console.error(`[INFO ERROR] ID: ${id}`, err.message || err);
+    res.status(404).json({ error: "Not found", details: err.message }); 
+  }
 });
 
 app.get('/anime/zoro/episodes/:id', async (req, res) => {
@@ -725,6 +728,27 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   // 🟢 NEW GLOBAL IFRAME FALLBACK FOR RELEASING ANIME OR CLOUDFLARE BLOCKS
   try {
       console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${requestedAnimeId}`);
+      
+      // Check if anime is new enough to allow Vidsrc fallback
+      let allowVidsrc = false;
+      try {
+          const aniListRes = await axios.post('https://graphql.anilist.co', {
+              query: `query ($id: Int) { Media (id: $id, type: ANIME) { startDate { year } } }`,
+              variables: { id: parseInt(requestedAnimeId) }
+          });
+          const startYear = aniListRes.data?.data?.Media?.startDate?.year || 0;
+          if (startYear >= 2025) {
+              allowVidsrc = true;
+          }
+      } catch (e) {
+          console.warn("[WATCH] Failed to verify anime start year for Vidsrc fallback.");
+      }
+
+      if (!allowVidsrc) {
+          console.warn(`[WATCH] Vidsrc fallback BLOCKED for AniList ID: ${requestedAnimeId}. Only new anime (2025+) are allowed to use Vidsrc.`);
+          return res.status(503).json({ error: "Stream temporarily unavailable. Vidsrc fallback disabled for non-airing anime." });
+      }
+
       const aniZipRes = await axios.get(`https://api.ani.zip/mappings?anilist_id=${requestedAnimeId}`);
       let tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
       let imdbId = aniZipRes.data?.mappings?.imdb_id;
@@ -782,7 +806,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               subtitles: []
           };
           
-          setCache(cacheKey, payload);
+          // 🔥 We DO NOT cache the Vidsrc payload!
+          // This ensures that if AniNeko was just temporarily down, the next refresh will try AniNeko again!
           return res.json(payload);
       } else {
           console.warn(`[WATCH] Completely failed to resolve TMDB or IMDB ID for epNum: ${epNum}`);
