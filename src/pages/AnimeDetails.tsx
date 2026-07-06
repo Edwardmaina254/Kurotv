@@ -816,6 +816,37 @@ export default function AnimeDetails() {
         }
     }, [streamData]);
 
+    // 🔥 FIX: Force enable the first subtitle track (Browsers often ignore 'default' for dynamically injected tracks)
+    useEffect(() => {
+        if (!videoRef.current || !streamData || streamData.isIframe) return;
+        const video = videoRef.current;
+        
+        const forceEnableSubtitles = () => {
+            if (video.textTracks && video.textTracks.length > 0) {
+                let isShowing = false;
+                for (let i = 0; i < video.textTracks.length; i++) {
+                    if (video.textTracks[i].mode === 'showing') {
+                        isShowing = true;
+                        break;
+                    }
+                }
+                if (!isShowing) {
+                    for (let i = 0; i < video.textTracks.length; i++) {
+                        if (video.textTracks[i].kind === 'subtitles' || video.textTracks[i].kind === 'captions') {
+                            video.textTracks[i].mode = 'showing';
+                            break; // Only enable the first one
+                        }
+                    }
+                }
+            }
+        };
+
+        forceEnableSubtitles();
+        // Give React a moment to inject the <track> elements into the DOM
+        const timeoutId = setTimeout(forceEnableSubtitles, 800);
+        return () => clearTimeout(timeoutId);
+    }, [streamData]);
+
     useEffect(() => {
         if (!streamData || streamData.error || !videoRef.current || streamData.isIframe) return;
         const video = videoRef.current;
