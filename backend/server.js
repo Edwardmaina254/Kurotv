@@ -575,10 +575,16 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           return cands;
       };
 
-      let candidates = await getCandidates(title);
-      if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-          console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-          candidates = await getCandidates(anilistData.data.Media.title.romaji);
+      let candidates = [];
+      if (anilistId.toString() === '21') {
+          // Hardcode One Piece to bypass search blocking
+          candidates = [{ slug: 'one-piece', aniNekoTitle: 'One Piece', aniNekoType: 'TV', aniNekoEps: 1100, score: 100 }];
+      } else {
+          candidates = await getCandidates(title);
+          if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
+              console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
+              candidates = await getCandidates(anilistData.data.Media.title.romaji);
+          }
       }
 
       if (candidates.length === 0) return null;

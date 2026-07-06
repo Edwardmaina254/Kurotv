@@ -234,10 +234,53 @@ export default function AnimeDetails() {
                     fetch(`${apiUrl}/anime/zoro/episodes/${id}`).catch(() => null)
                 ]);
 
-                const initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
+                let initialInfo = initialInfoRes && initialInfoRes.ok ? await initialInfoRes.json() : null;
                 const baseEpsData = baseEpsRes && baseEpsRes.ok ? await baseEpsRes.json() : { episodes: [] };
 
                 if (cancelRef.cancelled) return;
+
+                if (!initialInfo || !initialInfo.title || initialInfo.error) {
+                    console.log("[WATCH] Backend failed to fetch info, trying client-side AniList fallback...");
+                    try {
+                        const anilistQuery = `query ($id: Int) { Media (id: $id, type: ANIME) { id idMal title { english romaji } coverImage { extraLarge } bannerImage description genres averageScore status episodes type startDate { year month day } nextAiringEpisode { airingAt episode } relations { edges { relationType node { id title { english romaji } coverImage { extraLarge } format isAdult } } } } }`;
+                        const anilistRes = await fetch('https://graphql.anilist.co', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ query: anilistQuery, variables: { id: parseInt(id) } })
+                        });
+                        const anilistData = await anilistRes.json();
+                        const anime = anilistData?.data?.Media;
+                        
+                        if (anime && !anime.isAdult) {
+                            initialInfo = {
+                                id: anime.id?.toString() || id,
+                                idMal: anime.idMal || null,
+                                title: anime.title?.english || anime.title?.romaji || 'Series',
+                                image: anime.coverImage?.extraLarge || '',
+                                bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
+                                description: anime.description || 'No synopsis available.',
+                                genres: anime.genres || [],
+                                rating: anime.averageScore || 0,
+                                status: anime.status || 'UNKNOWN',
+                                totalEpisodes: anime.nextAiringEpisode ? (anime.nextAiringEpisode.episode - 1) : (anime.episodes || 0),
+                                type: anime.type || 'TV',
+                                releaseDate: anime.startDate?.year ? `${anime.startDate.year}-${anime.startDate.month || 1}-${anime.startDate.day || 1}` : 'Unknown',
+                                nextAiringEpisode: anime.nextAiringEpisode || null,
+                                relations: (anime.relations?.edges || []).map((edge: any) => ({
+                                    id: edge.node.id,
+                                    title: edge.node.title?.english || edge.node.title?.romaji,
+                                    image: edge.node.coverImage?.extraLarge || '',
+                                    type: edge.node.format || 'TV',
+                                    relationType: edge.relationType,
+                                    isAdult: edge.node.isAdult
+                                })).filter((r: any) => !r.isAdult && ['PREQUEL', 'SEQUEL', 'ALTERNATIVE', 'SPIN_OFF', 'SIDE_STORY'].includes(r.relationType))
+                            };
+                        }
+                    } catch (e) {
+                        console.error("Client-side AniList fallback failed", e);
+                    }
+                }
+
                 setAnimeFetchResult(initialInfo);
 
                 if (!initialInfo || !initialInfo.title) {
@@ -246,7 +289,14 @@ export default function AnimeDetails() {
                     return;
                 }
 
-                const baseEpisodes = baseEpsData.episodes || [];
+                let baseEpisodes = baseEpsData.episodes || [];
+                if (baseEpisodes.length === 0) {
+                    const limit = initialInfo.totalEpisodes > 0 ? initialInfo.totalEpisodes : (initialInfo.type === 'MOVIE' ? 1 : 12);
+                    for (let i = 1; i <= limit; i++) {
+                        baseEpisodes.push({ id: `auto-${id}-${i}`, number: initialInfo.type === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` });
+                    }
+                }
+
                 const safeBaseSeason: ExtendedAnimeDetails = {
                     id: initialInfo.id?.toString() || id,
                     title: initialInfo.title,
