@@ -1,4 +1,17 @@
-// backend/server.js
+let subtitleUrl = '';
+              try {
+                  const parsedUrl = new URL(vidUrl);
+                  if (parsedUrl.searchParams.has('sub')) subtitleUrl = parsedUrl.searchParams.get('sub');
+                  else if (parsedUrl.searchParams.has('caption_1')) subtitleUrl = parsedUrl.searchParams.get('caption_1');
+                  else if (parsedUrl.searchParams.has('c1_file')) subtitleUrl = parsedUrl.searchParams.get('c1_file');
+              } catch(e) {}
+
+              const subtitles = [];
+              if (subtitleUrl) {
+                  subtitles.push({ lang: 'English', url: subtitleUrl });
+              }
+
+              // backend/server.js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -367,26 +380,14 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
       }
   }
 
-  try {
-    const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
-    if (consumetInfo?.episodes?.length > 0) {
-      const sanitized = consumetInfo.episodes.filter(ep => !isNaN(parseFloat(ep.number))).sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
-      // 🔥 CACHE FIX: Releasing anime gets a 1-hour cache, otherwise 12 hours
-      const ttl = consumetInfo.status === 'Ongoing' ? 1 : 12;
-      setCache(cacheKey, { episodes: sanitized }, ttl);
-      return res.json({ episodes: sanitized });
-    }
-  } catch { }
-
   const finalEps = [];
   const limit = targetEpisodes > 0 ? targetEpisodes : (format === 'MOVIE' ? 1 : 12);
   for (let i = 1; i <= limit; i++) {
     finalEps.push({ id: `auto-${id}-${i}`, number: format === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` });
   }
   
-  // Only cache if we actually found real target episodes, otherwise don't poison the cache with 12
   if (targetEpisodes > 0 || format === 'MOVIE') {
-      setCache(cacheKey, { episodes: finalEps }, 1); // 1-hour cache for auto-generated list in case it's releasing
+      setCache(cacheKey, { episodes: finalEps }, 1); 
   }
   res.json({ episodes: finalEps });
 });
@@ -659,8 +660,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                   $ep(`.server-items[data-id="${group}"] [data-video]`).each((i, el) => {
                       const url = $ep(el).attr('data-video');
                       if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe') || url.includes('bibiemb')) vidUrl = url;
-                          else if (!vidUrl) vidUrl = url;
+                          if (url.includes('vivibebe.site')) vidUrl = url;
+                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
                       }
                   });
               };
@@ -676,8 +677,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                   $ep('[data-video]').each((i, el) => {
                       const url = $ep(el).attr('data-video');
                       if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe') || url.includes('bibiemb')) vidUrl = url;
-                          else if (!vidUrl) vidUrl = url;
+                          if (url.includes('vivibebe.site')) vidUrl = url;
+                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
                       }
                   });
               }
