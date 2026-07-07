@@ -341,7 +341,7 @@ export default function AnimeDetails() {
                         query($ids: [Int]) {
                             Page(page: 1, perPage: 50) {
                                 media(id_in: $ids, type: ANIME) {
-                                    id idMal startDate { year month day } format status averageScore description genres bannerImage coverImage { extraLarge } title { english romaji }
+                                    id idMal startDate { year month day } format status averageScore description genres bannerImage coverImage { extraLarge } title { english romaji } episodes
                                 }
                             }
                         }
@@ -413,6 +413,7 @@ export default function AnimeDetails() {
                             });
 
                             const finalOrdered = compiledSeasons.filter((s: any) => {
+                                if (s.status === 'NOT_YET_RELEASED') return false; // 🔥 FIX: Hide unreleased seasons
                                 if (s.id.toString() === id) return true;
                                 return (s.episodes || []).length > 0;
                             });

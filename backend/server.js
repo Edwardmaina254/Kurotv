@@ -320,7 +320,7 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
       id: edge.node.id, title: edge.node.title?.english || edge.node.title?.romaji || `${edge.node.format || 'TV'} Entry`,
       image: edge.node.coverImage?.extraLarge || '', type: edge.node.format || 'TV', relationType: edge.relationType,
       isAdult: edge.node.isAdult === true
-    })).filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()) && !rel.isAdult); // 🔥 JS FILTER
+    })).filter(rel => !BANNED_ANIME_IDS.includes(rel.id.toString()) && !rel.isAdult && !['MANGA', 'NOVEL', 'ONE_SHOT'].includes(rel.type)); // 🔥 JS FILTER
 
     const payloadObj = {
       id: anime.id?.toString() || id, idMal: anime.idMal || null, title: anime.title?.english || anime.title?.romaji || 'Series',
@@ -355,9 +355,17 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
     const j = await r.json();
     if (j?.data?.Media) {
       format = j.data.Media.format || "TV";
-      targetEpisodes = j.data.Media.nextAiringEpisode?.episode ? (j.data.Media.nextAiringEpisode.episode - 1) : (j.data.Media.episodes || 12);
+      targetEpisodes = j.data.Media.nextAiringEpisode?.episode ? (j.data.Media.nextAiringEpisode.episode - 1) : (j.data.Media.episodes || 0);
     }
   } catch { }
+
+  if (targetEpisodes === 0) {
+      const infoCache = getCache(`info-${id}`);
+      if (infoCache) {
+          targetEpisodes = infoCache.totalEpisodes || 0;
+          format = infoCache.type || "TV";
+      }
+  }
 
   try {
     const consumetInfo = await timeoutPromise(anilist.fetchAnimeInfo(id), 6000);
@@ -375,7 +383,11 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   for (let i = 1; i <= limit; i++) {
     finalEps.push({ id: `auto-${id}-${i}`, number: format === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` });
   }
-  setCache(cacheKey, { episodes: finalEps }, 1); // 1-hour cache for auto-generated list in case it's releasing
+  
+  // Only cache if we actually found real target episodes, otherwise don't poison the cache with 12
+  if (targetEpisodes > 0 || format === 'MOVIE') {
+      setCache(cacheKey, { episodes: finalEps }, 1); // 1-hour cache for auto-generated list in case it's releasing
+  }
   res.json({ episodes: finalEps });
 });
 
