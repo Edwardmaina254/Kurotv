@@ -281,7 +281,7 @@ export default function Navbar() {
         <div className="hidden lg:flex items-center gap-5 text-[11px] xl:text-[12px] font-bold tracking-wider text-fg">
           <Link to="/random" onClick={(e) => { e.preventDefault(); handleRandom(); }} className="hover:text-fg transition-colors cursor-pointer">Random</Link>
           <div className="relative group py-4">
-            <Link to="/genres" className="hover:text-fg transition-colors cursor-pointer">Genres</Link>
+            <button className="hover:text-fg transition-colors cursor-default">Genres</button>
             <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
               <div className="bg-surface border border-border rounded-xl p-4 w-[420px] shadow-lg">
                 <div className="grid grid-cols-3 gap-2">
@@ -291,7 +291,7 @@ export default function Navbar() {
             </div>
           </div>
           <div className="relative group py-4">
-            <Link to="/types" className="hover:text-fg transition-colors cursor-pointer">Types</Link>
+            <button className="hover:text-fg transition-colors cursor-default">Types</button>
             <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
               <div className="bg-surface border border-border rounded-xl py-1.5 w-[140px] shadow-lg">
                 {TYPES.map((type) => <button key={type.value} onClick={() => navigate(`/search?format=${type.value}`)} className="text-left text-[11px] text-muted hover:text-accent hover:bg-bg transition-colors px-4 py-2 w-full">{type.label}</button>)}
