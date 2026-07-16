@@ -885,8 +885,15 @@ export default function AnimeDetails() {
                 const parsedQualities = data.levels.map((level, index) => ({ height: level.height, level: index })).reverse();
                 setQualities(parsedQualities);
                 
-                // Let hls.js remain in its default Auto (-1) state
-                setCurrentQuality(-1);
+                const alwaysHD = localStorage.getItem('kurotv_always_hd') === 'true';
+                if (alwaysHD && data.levels.length > 0) {
+                    const maxLevelIndex = data.levels.length - 1;
+                    hls!.currentLevel = maxLevelIndex;
+                    setCurrentQuality(maxLevelIndex);
+                } else {
+                    // Let hls.js remain in its default Auto (-1) state
+                    setCurrentQuality(-1);
+                }
                 
                 restoreProgress();
                 video.play().catch(e => console.warn("Play interrupted:", e));
@@ -898,8 +905,9 @@ export default function AnimeDetails() {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
                             console.warn(`[HLS] Fatal network error encountered, trying to recover...`);
-                            if (data.response && (data.response.code === 404 || data.response.code === 403)) {
-                                console.error('[HLS] Unrecoverable 404/403 network error.');
+                            // 🔥 FIX: Treat 502 errors as fatal to trigger fallback instantly instead of stalling
+                            if (data.response && (data.response.code === 404 || data.response.code === 403 || data.response.code === 502)) {
+                                console.error(`[HLS] Unrecoverable ${data.response.code} network error.`);
                                 hls!.destroy();
                                 fallbackRef.current(`Network Error: ${data.details} (${data.response.code})`);
                             } else {
