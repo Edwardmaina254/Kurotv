@@ -473,6 +473,7 @@ app.get('/proxy/stream', async (req, res) => {
 
     let upstreamType = (response.headers['content-type'] || 'video/mp2t').toLowerCase();
     if (upstreamType.includes('audio/,') || upstreamType.includes('text/plain')) upstreamType = 'video/mp2t';
+    if (targetUrl.includes('.vtt')) upstreamType = 'text/vtt';
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
