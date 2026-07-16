@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Bookmark, LayoutDashboard, LogOut, Play, Trash2, Loader2, User as UserIcon, Search, Volume2, FastForward, ArrowLeft } from 'lucide-react';
+import { Bookmark, LayoutDashboard, LogOut, Play, Trash2, Loader2, User as UserIcon, Search, Volume2, FastForward, ArrowLeft , MonitorPlay } from 'lucide-react';
 
 interface WatchlistItem {
     id: string; anime_id: string; title: string; image: string; type: string; created_at: string;
@@ -44,6 +44,7 @@ export default function Profile() {
     };
     const handleAudioChange = (val: string) => { setDefaultAudio(val); localStorage.setItem('kuro-default-audio', val); };
     const handleSkipChange = (val: boolean) => { setAutoSkip(val); localStorage.setItem('kuro-auto-skip', val.toString()); };
+    const handleAlwaysHDChange = (val: boolean) => { setAlwaysHD(val); localStorage.setItem('kurotv_always_hd', val.toString()); };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 text-accent animate-spin" /></div>;
 
