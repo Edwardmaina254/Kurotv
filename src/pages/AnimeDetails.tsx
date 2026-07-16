@@ -822,26 +822,31 @@ export default function AnimeDetails() {
         if (!videoRef.current || !streamData || streamData.isIframe) return;
         const video = videoRef.current;
         
+                let attempts = 0;
         const forceEnableSubtitles = () => {
-            if (video.textTracks && video.textTracks.length > 0) {
+            if (!videoRef.current) return;
+            const currentVideo = videoRef.current;
+            if (currentVideo.textTracks && currentVideo.textTracks.length > 0) {
                 let isShowing = false;
-                for (let i = 0; i < video.textTracks.length; i++) {
-                    if (video.textTracks[i].mode === 'showing') {
+                for (let i = 0; i < currentVideo.textTracks.length; i++) {
+                    if (currentVideo.textTracks[i].mode === 'showing') {
                         isShowing = true;
                         break;
                     }
                 }
                 if (!isShowing) {
-                    for (let i = 0; i < video.textTracks.length; i++) {
-                        if (video.textTracks[i].kind === 'subtitles' || video.textTracks[i].kind === 'captions') {
-                            video.textTracks[i].mode = 'showing';
-                            break; // Only enable the first one
+                    for (let i = 0; i < currentVideo.textTracks.length; i++) {
+                        if (currentVideo.textTracks[i].kind === 'subtitles' || currentVideo.textTracks[i].kind === 'captions') {
+                            currentVideo.textTracks[i].mode = 'showing';
+                            break;
                         }
                     }
                 }
+            } else if (attempts < 20) {
+                attempts++;
+                setTimeout(forceEnableSubtitles, 500);
             }
         };
-
         forceEnableSubtitles();
         // Give React a moment to inject the <track> elements into the DOM
         const timeoutId = setTimeout(forceEnableSubtitles, 800);
