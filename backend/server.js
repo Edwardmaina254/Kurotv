@@ -608,7 +608,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (candidates.length === 0) return null;
 
       // Intelligent Scoring Algorithm
-      const normalize = (str) => (str || '').toLowerCase().replace(/season|part|cour/g, '').replace(/[^a-z0-9]/g, '');
+      const normalize = (str) => (str || '').toLowerCase().replace(/(season|part|cour)\s*\d+/g, '').replace(/season|part|cour/g, '').replace(/[^a-z0-9]/g, '');
       const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
       const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
       const anilistFormat = anilistData.data.Media.format || '';
