@@ -646,7 +646,17 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       });
 
       candidates.sort((a, b) => b.score - a.score);
-      const slugs = candidates.map(c => c.slug);
+      
+      let finalCandidates = candidates;
+      if (candidates.length > 0) {
+          const bestScore = candidates[0].score;
+          if (bestScore >= 100) {
+              finalCandidates = candidates.filter(c => c.score >= 100);
+          } else {
+              finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
+          }
+      }
+      const slugs = finalCandidates.map(c => c.slug);
 
       // 2. Loop through every slug found until one successfully returns a master playlist
       for (const currentSlug of slugs) {
