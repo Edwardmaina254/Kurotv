@@ -691,10 +691,8 @@ export default function AnimeDetails() {
 
             // Remove '|| onlyIframes' from the error check so the iframe can actually load!
             if (data.error || !data.sources || data.sources.length === 0) {
-                if (data.error === "PREMIERE_AWAITING") {
-                    setStreamError(`Episode ${data.episode} has not aired yet. Airs on: ${new Date(data.airingAt * 1000).toLocaleString()}`);
-                } else if (data.error === "UPLOADING") {
-                    setStreamError(`Episode ${data.episode} just aired! Encoders are currently ripping and uploading it. Please check back in 1-3 hours.`);
+                if (data.error === "PREMIERE_AWAITING" || data.error === "UPLOADING_DELAY") {
+                    setStreamData(data);
                 } else {
                     setStreamError(data.error || "Stream Unavailable. All streaming providers failed to respond.");
                 }
@@ -1282,7 +1280,8 @@ export default function AnimeDetails() {
                                                     ? "The episode finished airing in Japan! Servers are currently encoding and uploading the video chunks. Check back in a few minutes." 
                                                     : `${w} · ${y}`}
                                                 </p>
-                                                <div className="flex gap-3">
+                                                {!isUploading && streamData.airingAt && <PremiereCountdown airingAt={streamData.airingAt} />}
+                                                <div className="flex gap-3 mt-4">
                                                     <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs font-medium">
                                                     Episode {streamData.episode}
                                                     </span>
