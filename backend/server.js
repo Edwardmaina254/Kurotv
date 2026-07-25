@@ -559,7 +559,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
     try {
       console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format episodes } }`;
+      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
       const anilistRes = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -568,6 +568,13 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       const anilistData = await anilistRes.json();
       const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
       if (!title) return null;
+
+      const nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
+      const requestedEpNum = parseInt(epNum, 10);
+      if (nextAiring && requestedEpNum >= nextAiring.episode) {
+          console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
+          return { error: 'PREMIERE_AWAITING', airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
+      }
 
       const getCandidates = async (searchKeyword) => {
           // Clean the keyword to improve search results (remove years like (2011) and split at colon)
@@ -726,6 +733,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   try {
      const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
      if (payload) {
+         if (payload.notAired) return res.json(payload);
          const proxyWrapped = {
             ...payload,
             sources: payload.sources.map(st => ({
