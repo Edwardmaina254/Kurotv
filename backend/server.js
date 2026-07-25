@@ -559,7 +559,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
     try {
       console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
+      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
       const anilistRes = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -720,8 +720,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               console.error(`[WATCH] Error processing candidate slug "${currentSlug}":`, innerError.message);
           }
       }
-
       // If the loop finishes exhausting all slugs and none contained the episode
+      const status = anilistData?.data?.Media?.status;
+      if (status === 'RELEASING' || anilistData?.data?.Media?.nextAiringEpisode) {
+          console.warn(`[WATCH] Episode ${epNum} not found on AniNeko, but anime is currently airing. Assuming UPLOADING_DELAY.`);
+          return { error: 'UPLOADING_DELAY', episode: epNum, notAired: true };
+      }
       return null;
     } catch (e) {
       console.error('[AniNeko Extractor] Fatal Error:', e.message);
