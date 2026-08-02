@@ -1,17 +1,3 @@
-let subtitleUrl = '';
-              try {
-                  const parsedUrl = new URL(vidUrl);
-                  if (parsedUrl.searchParams.has('sub')) subtitleUrl = parsedUrl.searchParams.get('sub');
-                  else if (parsedUrl.searchParams.has('caption_1')) subtitleUrl = parsedUrl.searchParams.get('caption_1');
-                  else if (parsedUrl.searchParams.has('c1_file')) subtitleUrl = parsedUrl.searchParams.get('c1_file');
-              } catch(e) {}
-
-              const subtitles = [];
-              if (subtitleUrl) {
-                  subtitles.push({ lang: 'English', url: subtitleUrl });
-              }
-
-              // backend/server.js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
