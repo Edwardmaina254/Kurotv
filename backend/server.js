@@ -174,16 +174,29 @@ app.get('/anime/zoro/top-airing', async (req, res) => {
       }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
+    if (!response.ok || json.errors) throw new Error("Anilist API Error");
+
     const formatted = (json?.data?.Page?.media || []).map(anime => ({
       id: anime?.id?.toString() || '', title: anime?.title?.english || anime?.title?.romaji || 'Unknown',
       image: anime?.coverImage?.extraLarge || '', bannerImage: anime?.bannerImage || anime?.coverImage?.extraLarge || '',
       rating: anime?.averageScore || 0, description: anime?.description || '', type: anime?.type || "TV", status: anime?.status || "RELEASING"
     })).filter(anime => !BANNED_ANIME_IDS.includes(anime.id));
     
+    if (formatted.length > 0) {
+      fs.writeFileSync(path.join(__dirname, 'fallback_top_airing.json'), JSON.stringify(formatted, null, 2));
+    }
     setCache(cacheKey, formatted, 2);
     return res.json({ results: formatted });
   } catch (err) { 
     console.error("[CRON/FALLBACK] Failed top-airing:", err.message);
+    const fallbackPath = path.join(__dirname, 'fallback_top_airing.json');
+    if (fs.existsSync(fallbackPath)) {
+        return res.json({ results: JSON.parse(fs.readFileSync(fallbackPath, 'utf8')) });
+    }
+    const fallbackHardcoded = path.join(__dirname, 'fallback_data.json');
+    if (fs.existsSync(fallbackHardcoded)) {
+        return res.json({ results: JSON.parse(fs.readFileSync(fallbackHardcoded, 'utf8')) });
+    }
     return res.json({ results: [] }); 
   }
 });
@@ -204,6 +217,8 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
       }`;
     const response = await fetchWithBackoff(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
     const json = await response.json();
+    if (!response.ok || json.errors) throw new Error("Anilist API Error");
+
     const rawList = (json?.data?.Page?.airingSchedules || []).map(item => ({
       id: item?.media?.id?.toString() || '', episode: item?.episode || 1, episodeNumber: item?.episode || 1,
       title: item?.media?.title?.english || item?.media?.title?.romaji || 'Unknown', image: item?.media?.coverImage?.extraLarge || '', type: item?.media?.type || "TV",
@@ -214,10 +229,22 @@ app.get('/anime/zoro/recent-episodes', async (req, res) => {
     for (const anime of rawList) { if (!seen.has(anime.id)) { seen.add(anime.id); unique.push(anime); } }
     
     const finalRecent = unique.slice(0, 20);
+    
+    if (finalRecent.length > 0) {
+      fs.writeFileSync(path.join(__dirname, 'fallback_recent_episodes.json'), JSON.stringify(finalRecent, null, 2));
+    }
     setCache(cacheKey, finalRecent, 0.5);
     return res.json({ results: finalRecent });
   } catch (err) { 
     console.error("[CRON/FALLBACK] Failed recent-episodes:", err.message);
+    const fallbackPath = path.join(__dirname, 'fallback_recent_episodes.json');
+    if (fs.existsSync(fallbackPath)) {
+        return res.json({ results: JSON.parse(fs.readFileSync(fallbackPath, 'utf8')) });
+    }
+    const fallbackHardcoded = path.join(__dirname, 'fallback_data.json');
+    if (fs.existsSync(fallbackHardcoded)) {
+        return res.json({ results: JSON.parse(fs.readFileSync(fallbackHardcoded, 'utf8')) });
+    }
     return res.json({ results: [] }); 
   }
 });
@@ -326,6 +353,7 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 
     if (!response.ok) throw new Error("HTTP Error");
     const json = await response.json();
+    if (json.errors) throw new Error("Anilist API Error");
     const anime = json?.data?.Media;
     if (!anime) throw new Error("Missing data");
 
@@ -351,6 +379,34 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
     return res.json(payloadObj);
   } catch (err) { 
     console.error(`[INFO ERROR] ID: ${id}`, err.message || err);
+    try {
+        console.warn(`[INFO FALLBACK] Attempting to fetch dummy metadata from api.ani.zip for ${id}`);
+        const fallbackReq = await fetch(`https://api.ani.zip/mappings?anilist_id=${id}`);
+        const fallbackData = await fallbackReq.json();
+        
+        if (fallbackData?.titles) {
+            const fallbackPayload = {
+                id: id.toString(),
+                idMal: fallbackData.mal_id || null,
+                title: fallbackData.titles.en || fallbackData.titles.ro || fallbackData.titles.ja || 'Unknown Series',
+                image: fallbackData.image || '',
+                bannerImage: fallbackData.image || '',
+                description: 'Anilist API is currently down. Showing fallback data.',
+                genres: [],
+                rating: 0,
+                status: 'UNKNOWN',
+                totalEpisodes: fallbackData.episodes || 0,
+                type: 'TV',
+                releaseDate: 'Unknown',
+                nextAiringEpisode: null,
+                relations: []
+            };
+            setCache(cacheKey, fallbackPayload, 0.5);
+            return res.json(fallbackPayload);
+        }
+    } catch (innerErr) {
+        console.error(`[INFO FALLBACK ERROR] Failed to fetch fallback data: ${innerErr.message}`);
+    }
     res.status(404).json({ error: "Not found", details: err.message }); 
   }
 });

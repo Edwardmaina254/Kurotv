@@ -1,0 +1,42 @@
+[
+  {
+    "id": "21",
+    "title": "One Piece",
+    "image": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/nx21-tXMN3Y20PIL9.jpg",
+    "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/21-wf37VakJmZqs.jpg",
+    "rating": 87,
+    "description": "Gol D. Roger was known as the Pirate King...",
+    "type": "TV",
+    "status": "RELEASING"
+  },
+  {
+    "id": "162983",
+    "title": "Undead Girl Murder Farce",
+    "image": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx162983-zB71k6FpYd9p.png",
+    "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/162983-hM5yDqC2Nq7w.jpg",
+    "rating": 78,
+    "description": "The 19th century—a world inhabited by vampires, golems, werewolves and other paranormal creatures.",
+    "type": "TV",
+    "status": "RELEASING"
+  },
+  {
+    "id": "185874",
+    "title": "Bleach: Thousand-Year Blood War",
+    "image": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx185874-g35hRSTV1Gqf.png",
+    "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/185874-uR6W1kO70Yh7.jpg",
+    "rating": 89,
+    "description": "Bleach TYBW Part 3",
+    "type": "TV",
+    "status": "RELEASING"
+  },
+  {
+    "id": "113415",
+    "title": "JUJUTSU KAISEN",
+    "image": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx113415-bbBWj4pEFseh.jpg",
+    "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/113415-jQBSkxWAAk83.jpg",
+    "rating": 86,
+    "description": "A boy fights... for the right death.",
+    "type": "TV",
+    "status": "FINISHED"
+  }
+]
