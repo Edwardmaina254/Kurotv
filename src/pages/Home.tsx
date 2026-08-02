@@ -119,7 +119,7 @@ export default function Home() {
 
     return (
         <main className="w-full flex flex-col">
-            <section ref={heroRef} className="relative w-full h-[400px] md:h-[480px] xl:h-[520px]">
+            <section ref={heroRef} className="relative w-full h-[400px] md:h-[480px] xl:h-[560px] 2xl:h-[600px]">
                 {loading ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-bg">
                         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>

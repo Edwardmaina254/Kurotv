@@ -15,7 +15,9 @@
   "license": "ISC",
   "dependencies": {
     "@consumet/extensions": "^1.8.8",
+    "@definisi/vidsrc-scraper": "^2.0.2",
     "@supabase/supabase-js": "^2.105.0",
+    "anitaku-scraper": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",

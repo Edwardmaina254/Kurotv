@@ -25,21 +25,22 @@ export default function HeroBanner({ anime, prevAnime, nextAnime, currentIndex, 
     <div className="relative w-full h-full overflow-hidden bg-bg parallax-container group">
       {hasBanner ? (
         <>
-          {/* Blurred background layer — fills edges when aspect ratio doesn't match */}
+          {/* Blurred background layer — fills edges behind the main image */}
           <div className="absolute inset-0 w-full h-full overflow-hidden">
             <img
               src={anime.bannerImage}
               alt=""
-              className="w-full h-full object-cover object-center scale-110 blur-2xl opacity-60"
+              className="w-full h-full object-cover object-center blur-3xl opacity-40"
               aria-hidden="true"
               onError={() => setImgError(true)}
             />
           </div>
-          {/* Foreground image — top-aligned to show faces */}
+          {/* Foreground image — cover + center so the main subject is always visible */}
           <img
             src={anime.bannerImage}
             alt={anime.title}
-            className="absolute inset-0 w-full h-full object-cover object-top parallax-bg"
+            className="absolute inset-0 w-full h-full object-cover object-center parallax-bg"
+            style={{ imageRendering: 'auto' }}
             onError={() => setImgError(true)}
           />
         </>
@@ -58,8 +59,8 @@ export default function HeroBanner({ anime, prevAnime, nextAnime, currentIndex, 
         </div>
       )}
 
-      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent z-10" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent z-10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-transparent z-10" />
 
       <div className="relative z-20 w-full flex flex-col justify-center px-5 md:px-10 max-w-3xl pt-16 pb-6 my-auto h-full">
         <div data-reveal className="mb-4 md:mb-6">
