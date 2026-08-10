@@ -46,6 +46,8 @@ const formatTime = (time: number) => {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
+const EP_PAGE_SIZE = 48;
+
 export default function AnimeDetails() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -62,6 +64,7 @@ export default function AnimeDetails() {
 
     const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
     const [watchedEpisodes, setWatchedEpisodes] = useState<Set<string>>(new Set());
+    const [epPage, setEpPage] = useState(1);
 
     const [user, setUser] = useState<any>(null);
     const [isInWatchlist, setIsInWatchlist] = useState(false);
@@ -203,6 +206,7 @@ export default function AnimeDetails() {
         setChronologicalSeasons([]);
         setActiveEpisode(null);
         setPlayingSeasonId(null);
+        setEpPage(1);
         setStreamData(null);
         setIsFetchingStream(false);
         setStreamError(null);
@@ -639,6 +643,8 @@ export default function AnimeDetails() {
 
         setActiveEpisode(episode);
         setPlayingSeasonId(parentSeasonId);
+        const epNum = Number(episode.number);
+        setEpPage(Number.isFinite(epNum) && epNum > 0 ? Math.max(1, Math.ceil(epNum / EP_PAGE_SIZE)) : 1);
         setIsFetchingStream(true);
         setStreamData(null);
         setStreamError(null);
@@ -1491,31 +1497,103 @@ export default function AnimeDetails() {
                         {chronologicalSeasons.map((seasonObj) => {
                             if (playingSeasonId !== seasonObj.id) return null;
                             const seasonEps = seasonObj.episodes || [];
+                            const totalPages = Math.max(1, Math.ceil(seasonEps.length / EP_PAGE_SIZE));
+                            const page = Math.min(epPage, totalPages);
+                            const pageEps = seasonEps.slice((page - 1) * EP_PAGE_SIZE, page * EP_PAGE_SIZE);
+                            const pageItems: (number | '...')[] = [];
+                            for (let p = 1; p <= totalPages; p++) {
+                                if (p === 1 || p === totalPages || Math.abs(p - page) <= 2) {
+                                    if (pageItems.length && (pageItems[pageItems.length - 1] as number) !== p - 1) pageItems.push('...');
+                                    pageItems.push(p);
+                                }
+                            }
+                            const goToPage = (p: number) => {
+                                if (p < 1 || p > totalPages || p === page) return;
+                                setEpPage(p);
+                                requestAnimationFrame(() => {
+                                    document.getElementById(`episodes-${seasonObj.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                });
+                            };
+                            const epThumb = seasonObj.bannerImage || seasonObj.image || '';
                             return (
-                                <div key={`chrono-ep-block-${seasonObj.id}`} className="bg-surface border border-border rounded-2xl p-5 mb-6 transition-transform duration-300" data-reveal>
+                                <div key={`chrono-ep-block-${seasonObj.id}`} id={`episodes-${seasonObj.id}`} className="bg-surface border border-border rounded-2xl p-4 sm:p-5 mb-6 scroll-mt-24 transition-transform duration-300" data-reveal>
                                     <div className="flex items-center gap-4 mb-4">
                                         <div className="flex-1 h-px bg-border"></div>
                                         <h3 className="text-xs font-semibold tracking-wider text-fg uppercase">Episodes</h3>
+                                        <span className="text-[10px] font-semibold text-muted bg-bg border border-border px-2 py-0.5 rounded-full">{seasonEps.length}</span>
                                         <div className="flex-1 h-px bg-border"></div>
                                     </div>
-                                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
-                                        {seasonEps.length > 0 ? (
-                                            seasonEps.map((ep) => {
-                                                const isWatched = watchedEpisodes.has(ep.id.toString());
-                                                const isActive = activeEpisode?.id?.toString() === ep.id.toString();
-                                                return (
-                                                    <button key={`ep-grid-btn-${ep.id}`} id={isActive ? `ep-btn-${ep.id}` : undefined} onClick={() => handlePlayEpisode(ep, seasonObj.id)}
-                                                        className={`relative h-9 rounded border transition-all duration-200 flex items-center justify-center font-semibold text-xs cursor-pointer ${isActive ? 'bg-accent border-accent text-white z-10' : isWatched ? 'bg-surface border-border text-muted hover:text-fg' : 'bg-surface border-border text-muted hover:border-muted'}`}>
-                                                        {ep.number}
-                                                        {isWatched && !isActive && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-border" />}
-                                                        {isActive && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-white/40" />}
-                                                    </button>
-                                                );
-                                            })
-                                        ) : (
-                                            <div className="col-span-full py-8 text-center text-muted text-xs font-semibold uppercase">Transmission Pending</div>
-                                        )}
-                                    </div>
+                                    {seasonEps.length > 0 ? (
+                                        <>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
+                                                {pageEps.map((ep) => {
+                                                    const isWatched = watchedEpisodes.has(ep.id.toString());
+                                                    const isActive = activeEpisode?.id?.toString() === ep.id.toString();
+                                                    const isMovie = ep.number === "Full Movie";
+                                                    return (
+                                                        <button key={`ep-grid-btn-${ep.id}`} id={isActive ? `ep-btn-${ep.id}` : undefined} onClick={() => handlePlayEpisode(ep, seasonObj.id)}
+                                                            className={`group relative flex flex-col items-stretch rounded-xl border text-left transition-all duration-200 cursor-pointer focus:outline-none ${isActive ? 'border-accent ring-2 ring-accent/60 shadow-lg shadow-accent/10' : 'border-border hover:border-muted hover:shadow-md'}`}>
+                                                            <div className="relative aspect-video rounded-t-xl overflow-hidden bg-bg">
+                                                                {(ep.image || epThumb) ? (
+                                                                    <img src={ep.image || epThumb} alt={ep.title ? `${ep.title} — Episode ${ep.number}` : `Episode ${ep.number}`} loading="lazy"
+                                                                        className={`w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105 ${isWatched && !isActive ? 'opacity-70' : ''}`} />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface-light to-bg">
+                                                                        <span className="text-lg font-black text-muted font-display">{ep.number}</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30" />
+                                                                <span className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold tracking-wide uppercase backdrop-blur-sm ${isActive ? 'bg-accent text-white' : 'bg-black/65 text-white/95'}`}>
+                                                                    {isMovie ? "MOVIE" : `EP ${ep.number}`}
+                                                                </span>
+                                                                {isWatched && !isActive && (
+                                                                    <span className="absolute top-1.5 right-1.5 w-[18px] h-[18px] rounded-full bg-green-500 flex items-center justify-center shadow">
+                                                                        <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                                                                    </span>
+                                                                )}
+                                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                                                    <span className={`flex items-center justify-center w-9 h-9 rounded-full shadow-lg backdrop-blur-sm transition-transform duration-200 group-hover:scale-110 ${isActive ? 'bg-accent text-white' : 'bg-white/95 text-black'}`}>
+                                                                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                                                                    </span>
+                                                                </div>
+                                                                {isActive && (
+                                                                    <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded bg-accent text-white text-[8px] font-bold uppercase tracking-wider">
+                                                                        <span className="w-1 h-1 rounded-full bg-white animate-pulse" /> Playing
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className={`px-2 py-1.5 rounded-b-xl border-t ${isActive ? 'bg-accent/10 border-accent/20' : 'bg-bg border-border/60'}`}>
+                                                                <p className={`text-[10px] sm:text-[11px] font-semibold truncate ${isActive ? 'text-accent' : isWatched ? 'text-muted' : 'text-fg'}`}>
+                                                                    {isMovie ? "Full Movie" : `Episode ${ep.number}`}
+                                                                </p>
+                                                                {ep.title && (
+                                                                    <p className="text-[9px] sm:text-[10px] text-muted truncate leading-snug mt-0.5">{ep.title}</p>
+                                                                )}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center justify-center gap-1.5 mt-5 flex-wrap">
+                                                    <button onClick={() => goToPage(page - 1)} disabled={page === 1}
+                                                        className="w-8 h-8 rounded-lg border border-border bg-surface text-muted hover:text-fg hover:border-muted text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">‹</button>
+                                                    {pageItems.map((item, i) => item === '...' ? (
+                                                        <span key={`dots-${i}`} className="px-1 text-muted text-sm select-none">…</span>
+                                                    ) : (
+                                                        <button key={item} onClick={() => goToPage(item)}
+                                                            className={`min-w-8 h-8 px-2 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${item === page ? 'bg-accent border-accent text-white' : 'border-border bg-surface text-muted hover:text-fg hover:border-muted'}`}>
+                                                            {item}
+                                                        </button>
+                                                    ))}
+                                                    <button onClick={() => goToPage(page + 1)} disabled={page === totalPages}
+                                                        className="w-8 h-8 rounded-lg border border-border bg-surface text-muted hover:text-fg hover:border-muted text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">›</button>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="py-8 text-center text-muted text-xs font-semibold uppercase">Transmission Pending</div>
+                                    )}
                                 </div>
                             );
                         })}
