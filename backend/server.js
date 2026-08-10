@@ -428,40 +428,14 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
       }
   }
 
-  // 🖼️ NEW: Per-episode covers via ani.zip (TMDB/TheTVDB mapping + episode stills)
-  let zipEpisodes = null; let zipTmdbId = null;
-  try {
-    const zipRes = await fetchWithBackoff(`https://api.ani.zip/mappings?anilist_id=${id}`, {}, 2);
-    const zipJson = await zipRes.json().catch(() => null);
-    if (zipJson?.episodes) {
-      zipEpisodes = zipJson.episodes;
-      zipTmdbId = zipJson.mappings?.themoviedb_id || null;
-    }
-  } catch (e) {
-    console.warn(`[EPISODES] ani.zip metadata failed for ${id}:`, e.message);
-  }
-
   const finalEps = [];
   const limit = targetEpisodes > 0 ? targetEpisodes : (format === 'MOVIE' ? 1 : 12);
   for (let i = 1; i <= limit; i++) {
-    let meta = null;
-    if (zipEpisodes) {
-      meta = zipEpisodes[i] || Object.values(zipEpisodes).find(e => e.episodeNumber == i);
-    }
-    const epObj = { id: `auto-${id}-${i}`, number: format === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` };
-    if (meta) {
-      epObj.image = meta.image || '';
-      epObj.title = meta.title?.en || meta.title?.['x-jat'] || '';
-      epObj.overview = meta.overview || '';
-      epObj.seasonNumber = meta.seasonNumber || 1;
-      epObj.episodeNumber = meta.episodeNumber || i;
-      if (zipTmdbId) epObj.tmdb = zipTmdbId;
-    }
-    finalEps.push(epObj);
+    finalEps.push({ id: `auto-${id}-${i}`, number: format === 'MOVIE' ? "Full Movie" : i, url: `auto-${id}-${i}` });
   }
   
   if (targetEpisodes > 0 || format === 'MOVIE') {
-      setCache(cacheKey, { episodes: finalEps }, 6);
+      setCache(cacheKey, { episodes: finalEps }, 1); 
   }
   res.json({ episodes: finalEps });
 });

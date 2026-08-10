@@ -25,12 +25,6 @@ export interface Episode {
   id: string;
   number: number;
   url: string;
-  image?: string;         // Per-episode still (ani.zip / TVDB)
-  title?: string;         // Per-episode title
-  overview?: string;      // Per-episode synopsis
-  seasonNumber?: number;
-  episodeNumber?: number;
-  tmdb?: string;
 }
 
 export interface StreamSource {
