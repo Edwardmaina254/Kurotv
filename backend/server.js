@@ -510,8 +510,12 @@ app.get('/proxy/segment', async (req, res) => {
     if (fetchRes.headers.get('content-type')) res.setHeader('Content-Type', fetchRes.headers.get('content-type'));
     if (fetchRes.headers.get('content-length')) res.setHeader('Content-Length', fetchRes.headers.get('content-length'));
     
-    Readable.fromWeb(fetchRes.body).pipe(res);
-  } catch (err) { res.status(502).send("Proxy Segment Error"); }
+    const arrayBuffer = await fetchRes.arrayBuffer();
+    return res.status(fetchRes.status).send(Buffer.from(arrayBuffer));
+  } catch (err) { 
+    console.error("Segment proxy error:", err);
+    res.status(502).send("Proxy Segment Error"); 
+  }
 });
 
 app.get('/proxy/stream', async (req, res) => {
