@@ -453,12 +453,7 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
     const isM3U8 = absolute.split('?')[0].endsWith('.m3u8');
     
-    // Only proxy M3U8 playlists. Leave TS segments unproxied to save Render bandwidth!
-    if (!isM3U8) {
-        return absolute;
-    }
-    
-    const proxyPath = '/proxy/stream.m3u8';
+    const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/segment';
     return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
   return manifest.split(/\r?\n/).map(line => {
@@ -496,6 +491,27 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(fetchRes.status).send(rewritten);
   } catch (err) { res.status(502).send("Proxy Stream Error"); }
+});
+
+app.get('/proxy/segment', async (req, res) => {
+  const targetUrl = req.query.url;
+  const referer = req.query.referer || 'https://kwik.cx/';
+  if (!targetUrl) return res.status(400).send("Missing URL");
+
+  try {
+    let origin = ""; try { origin = new URL(referer).origin; } catch (e) { }
+    const headers = { "Referer": referer, "Origin": origin || "https://kwik.cx", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" };
+    
+    const fetchRes = await fetch(targetUrl, { headers });
+    if (!fetchRes.ok) return res.status(502).send("Proxy Segment Error");
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    if (fetchRes.headers.get('content-type')) res.setHeader('Content-Type', fetchRes.headers.get('content-type'));
+    if (fetchRes.headers.get('content-length')) res.setHeader('Content-Length', fetchRes.headers.get('content-length'));
+    
+    Readable.fromWeb(fetchRes.body).pipe(res);
+  } catch (err) { res.status(502).send("Proxy Segment Error"); }
 });
 
 app.get('/proxy/stream', async (req, res) => {
