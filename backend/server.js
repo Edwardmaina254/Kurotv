@@ -584,391 +584,118 @@ app.get('/proxy/stream', async (req, res) => {
 // 🛑 WATCH ROUTE (DYNAMIC CLOUD LINKING)
 // ==========================================
 app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
-  const { episodeId } = req.params;
+  const episodeId = req.params.episodeId;
   const lang = req.query.lang === 'dub' ? 'dub' : 'sub';
 
-  // ⚡ FIX 1: Capture requested server from frontend (default to Vidstreaming)
-  const requestedServer = req.query.server || 'Vidstreaming'; 
-  
-  // Map UI Names to Miruro Provider Keys
-  const serverMap = {
-      'Vidstreaming': 'zoro',
-      'MegaCloud': 'ally',
-      'StreamSB': 'arc'
-  };
-  const targetProviderKey = serverMap[requestedServer] || 'zoro';
+  const cacheKey = `watch-${episodeId}-${lang}`;
+  if (getCache(cacheKey)) {
+    console.log(`⚡ Serving Stream from RAM Cache: ${episodeId}`);
+    return res.json(getCache(cacheKey));
+  }
 
-  // Make sure to add the server to the cache key so they don't overwrite each other!
-  // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v4-${episodeId}-${lang}-${targetProviderKey}`;
-  if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
-
-  const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
-  const baseUrl = `${protocol}://${req.get('host')}`;
-
-  const enrichWithSkipTimes = async (responseData, resolvedAnimeId, resolvedEpNum) => {
-    if (!responseData) return responseData;
-    let intro = responseData.intro || null; let outro = responseData.outro || null;
-    if ((!intro || !outro) && resolvedAnimeId && resolvedEpNum) {
+  const sendIframeFallback = async (animeId, epNum) => {
+      console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${animeId}`);
       try {
-        const parsedEp = parseInt(resolvedEpNum, 10);
-        if (!isNaN(parsedEp)) {
-          const { data: customSkip } = await supabase.from('custom_skip_times').select('*').eq('episode_number', parsedEp).or(`anime_id.eq.${resolvedAnimeId},mal_id.eq.${resolvedAnimeId}`).maybeSingle();
-          if (customSkip) {
-            if (!intro && customSkip.op_start !== null && customSkip.op_end !== null) intro = { start: customSkip.op_start, end: customSkip.op_end };
-            if (!outro && customSkip.ed_start !== null && customSkip.ed_end !== null) outro = { start: customSkip.ed_start, end: customSkip.ed_end };
+          const aniZipRes = await fetchWithBackoff(`https://api.ani.zip/mappings?anilist_id=${animeId}`, {}, 2);
+          const aniZipData = await aniZipRes.json();
+          let tmdbId = aniZipData?.mappings?.themoviedb_id;
+          let imdbId = aniZipData?.mappings?.imdb_id;
+          const episodesMap = aniZipData?.episodes;
+          
+          let sNum = 1;
+          let eNum = epNum;
+
+          if (episodesMap && (episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum))) {
+              const epData = episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum);
+              sNum = epData.seasonNumber || 1;
+              eNum = epData.episodeNumber || epNum;
+          }
+
+          if (tmdbId || imdbId) {
+              console.log(`[WATCH] Loading Iframe Fallback for TMDB: ${tmdbId || 'N/A'}, IMDB: ${imdbId || 'N/A'}, Season: ${sNum}, Episode: ${eNum}`);
+              const payload = {
+                  sources: [
+                      { url: `https://vidsrc.me/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                      { url: `https://vidsrc.to/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
+                      { url: `https://vidsrc.pm/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
+                  ],
+                  subtitles: []
+              };
+              return res.json(payload);
+          }
+      } catch (fallbackErr) {
+          console.error("[WATCH] Iframe Fallback failed:", fallbackErr.message);
+      }
+      return res.status(404).json({ message: "Stream Unavailable - Episode currently unavailable from all upstream sources." });
+  };
+
+  // Native Gogoanime ID Handler (or auto handler)
+  let animeId = ""; let epNum = "";
+  if (episodeId.startsWith('auto-') || episodeId.startsWith('allanime-')) {
+    if (episodeId.startsWith('allanime-')) {
+      const parts = episodeId.split('-ep-');
+      const prefixParts = parts[0].split('-vid-');
+      animeId = prefixParts[0].replace('allanime-', '');
+      epNum = parts[1];
+    } else {
+      const parts = episodeId.split('-');
+      animeId = parts[1];
+      epNum = parts[2];
+    }
+
+    try {
+      const info = await anilist.fetchAnimeInfo(animeId);
+      if (info && info.episodes && info.episodes.length > 0) {
+        const targetEp = info.episodes.find(ep => ep.number === parseInt(epNum));
+        if (targetEp && targetEp.id) {
+          const data = await anilist.fetchEpisodeSources(targetEp.id);
+          if (data && data.sources && data.sources.length > 0) {
+             setCache(cacheKey, data);
+             return res.json(data);
           }
         }
-      } catch { }
-    }
-    return { ...responseData, intro, outro };
-  };
-
-  let requestedAnimeId = req.query.animeId || "";
-  let epNum = req.query.epNum || "";
-
-  if (episodeId.startsWith('allanime-')) {
-    const parts = episodeId.split('-ep-');
-    requestedAnimeId = parts[0].split('-vid-')[0].replace('allanime-', ''); epNum = parts[1] || epNum;
-  } else if (episodeId.startsWith('auto-')) {
-    const parts = episodeId.split('-');
-    requestedAnimeId = parts[1] || requestedAnimeId; epNum = parts[2] || epNum;
-  } else if (episodeId.includes('-episode-')) {
-    const parts = episodeId.split('-episode-');
-    requestedAnimeId = parts[0]; epNum = parts[1];
-  } else {
-    requestedAnimeId = requestedAnimeId || episodeId.split('-')[0] || episodeId;
-  }
-  epNum = epNum || "1";
-
-  const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
-    try {
-      console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
-      const anilistRes = await fetch('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } })
-      });
-      const anilistData = await anilistRes.json();
-      const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
-      if (!title) return null;
-
-      const nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
-      const requestedEpNum = parseInt(epNum, 10);
-      if (nextAiring && requestedEpNum >= nextAiring.episode) {
-          console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
-          return { error: 'PREMIERE_AWAITING', airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
       }
-
-      const getCandidates = async (searchKeyword) => {
-          // Clean the keyword to improve search results (remove years like (2011) and split at colon)
-          let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, '').trim();
-          if (cleanKeyword.includes(':')) cleanKeyword = cleanKeyword.split(':')[0].trim();
-          
-          console.log(`[WATCH] Searching AniNeko for title: "${cleanKeyword}"...`);
-          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(cleanKeyword));
-          const $search = cheerio.load(searchRes.data);
-          let cands = [];
-          $search('.nv-anime-thumb').each((i, el) => {
-              const href = $search(el).attr('href');
-              if (href && href.includes('/watch/')) {
-                  const slug = href.replace('/watch/', '');
-                  const badgeType = $search(el).find('.nv-badge-new').first().text().trim() || $search(el).find('.nv-stat-badge').first().text().trim();
-                  const typeStr = badgeType.toUpperCase();
-                  const ccText = $search(el).find('.nv-stat-cc').text().trim() || $search(el).find('.nv-stat-dub span').text().trim();
-                  const epsCount = parseInt(ccText.replace(/\D/g, '')) || 0;
-                  const titleEl = $search(el).next('.nv-anime-body').find('.nv-anime-title').text().trim();
-                  cands.push({ slug, aniNekoTitle: titleEl, aniNekoType: typeStr, aniNekoEps: epsCount });
-              }
-          });
-          return cands;
-      };
-
-      let candidates = [];
-      if (anilistId.toString() === '21') {
-          // Hardcode One Piece to bypass search blocking
-          candidates = [{ slug: 'one-piece', aniNekoTitle: 'One Piece', aniNekoType: 'TV', aniNekoEps: 1100, score: 100 }];
-      } else {
-          candidates = await getCandidates(title);
-          if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-              console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-              candidates = await getCandidates(anilistData.data.Media.title.romaji);
-          }
-      }
-
-      if (candidates.length === 0) return null;
-
-      // Intelligent Scoring Algorithm
-      const normalize = (str) => (str || '').toLowerCase().replace(/(season|part|cour)\s*\d+/g, '').replace(/season|part|cour/g, '').replace(/[^a-z0-9]/g, '');
-      const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
-      const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
-      const anilistFormat = anilistData.data.Media.format || '';
-      const anilistEps = anilistData.data.Media.episodes || 0;
-
-      candidates.forEach(c => {
-          let score = 0;
-          const cTitleNorm = normalize(c.aniNekoTitle);
-          if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
-              score += 50;
-          } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
-              score += 20;
-          } else if (cTitleNorm && (anilistTitleNorm1.includes(cTitleNorm) || anilistTitleNorm2.includes(cTitleNorm))) {
-              score += 20;
-          }
-
-          if (anilistFormat === 'TV' && c.aniNekoType === 'TV') score += 30;
-          else if (anilistFormat === 'MOVIE' && c.aniNekoType === 'MOVIE') score += 30;
-          else if ((anilistFormat === 'OVA' || anilistFormat === 'ONA') && (c.aniNekoType === 'OVA' || c.aniNekoType === 'ONA')) score += 30;
-
-          if (anilistEps > 0 && c.aniNekoEps > 0) {
-              const diff = Math.abs(anilistEps - c.aniNekoEps);
-              if (diff === 0) score += 20;
-              else if (diff <= 10) score += 10;
-          }
-          
-          c.score = score;
-      });
-
-      candidates.sort((a, b) => b.score - a.score);
-      
-      let finalCandidates = candidates;
-      if (candidates.length > 0) {
-          const bestScore = candidates[0].score;
-          if (bestScore >= 100) {
-              finalCandidates = candidates.filter(c => c.score >= 100);
-          } else {
-              finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
-          }
-      }
-      const slugs = finalCandidates.map(c => c.slug);
-
-      // 2. Loop through every slug found until one successfully returns a master playlist
-      for (const currentSlug of slugs) {
-          try {
-              console.log(`[WATCH] Testing slug candidates: "${currentSlug}" for Episode ${epNum}...`);
-              const epUrl = `https://anineko.to/watch/${currentSlug}/ep-${epNum}`;
-              // validateStatus allows us to bypass 404s gracefully
-              const epRes = await axios.get(epUrl, { validateStatus: () => true });
-              if (epRes.status !== 200) {
-                  console.warn(`[WATCH] Slug "${currentSlug}" does not contain Episode ${epNum}. Moving to next candidate...`);
-                  continue;
-              }
-              const $ep = cheerio.load(epRes.data);
-
-              let vidUrl = '';
-              let targetGroup = requestedLang === 'dub' ? 'dub' : 'sub';
-              
-              const checkGroup = (group) => {
-                  $ep(`.server-items[data-id="${group}"] [data-video]`).each((i, el) => {
-                      const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe.site')) vidUrl = url;
-                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
-                      }
-                  });
-              };
-              
-              if (targetGroup === 'sub') {
-                  checkGroup('hsub'); 
-                  if (!vidUrl) checkGroup('sub'); 
-              } else {
-                  checkGroup('dub');
-              }
-
-              if (!vidUrl) {
-                  $ep('[data-video]').each((i, el) => {
-                      const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe.site')) vidUrl = url;
-                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
-                      }
-                  });
-              }
-              
-              // If this specific slug didn't have a video stream for this episode number, continue to next slug
-              if (!vidUrl) {
-                  console.warn(`[WATCH] Slug "${currentSlug}" does not contain valid video URLs. Moving to next candidate...`);
-                  continue; 
-              }
-
-              console.log(`[WATCH] Found active streaming candidate URL: ${vidUrl}`);
-
-              let subtitleUrl = null;
-              if (vidUrl.includes('?sub=')) subtitleUrl = vidUrl.split('?sub=')[1].split('&')[0];
-              else if (vidUrl.includes('?caption_1=')) subtitleUrl = vidUrl.split('?caption_1=')[1].split('&')[0];
-              else if (vidUrl.includes('?c1_file=')) subtitleUrl = vidUrl.split('?c1_file=')[1].split('&')[0];
-
-              const vidRes = await axios.get(vidUrl, { headers: { 'Referer': 'https://anineko.to/' } });
-              const m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
-              
-              if (m3u8Match) {
-                  console.log(`[WATCH] ✅ Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
-                  const payload = {
-                     headers: { "Referer": "https://vivibebe.site/" },
-                     sources: [{ url: m3u8Match[1], isM3U8: true, quality: 'default' }]
-                  };
-                  if (subtitleUrl) payload.subtitles = [{ url: subtitleUrl, lang: "English" }];
-                  return payload; // Returns payload and breaks execution safely
-              }
-          } catch (innerError) {
-              console.error(`[WATCH] Error processing candidate slug "${currentSlug}":`, innerError.message);
-          }
-      }
-      // If the loop finishes exhausting all slugs and none contained the episode
-      const status = anilistData?.data?.Media?.status;
-      if (status === 'RELEASING' || anilistData?.data?.Media?.nextAiringEpisode) {
-          console.warn(`[WATCH] Episode ${epNum} not found on AniNeko, but anime is currently airing. Assuming UPLOADING_DELAY.`);
-          return { error: 'UPLOADING_DELAY', episode: epNum, notAired: true };
-      }
-      return null;
+      throw new Error("Could not find mapped episode or stream failed.");
     } catch (e) {
-      console.error('[AniNeko Extractor] Fatal Error:', e.message);
-      return null;
-    }
-  };
-
-
-  try {
-     const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
-     if (payload) {
-         if (payload.notAired) return res.json(payload);
-         const proxyWrapped = {
-            ...payload,
-            sources: payload.sources.map(st => ({
-               ...st,
-               url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
-               isM3U8: true,
-               isIframe: false
-            }))
-         };
-         
-         if (payload.subtitles && payload.subtitles.length > 0) {
-             proxyWrapped.subtitles = payload.subtitles.map(sub => ({
-                 ...sub,
-                 url: `${baseUrl}/proxy/stream?url=${encodeURIComponent(sub.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`
-             }));
-         }
-         
-         const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
-         setCache(cacheKey, enrichedPayload);
-         return res.json(enrichedPayload);
-     }
-  } catch (err) {
-     console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
-  }
-  
-  // 🟢 NEW GLOBAL IFRAME FALLBACK FOR RELEASING ANIME OR CLOUDFLARE BLOCKS
-  try {
-      console.log(`[WATCH] Attempting global iframe fallback using AniZip mapping for AniList ID: ${requestedAnimeId}`);
-      
-      const aniZipRes = await axios.get(`https://api.ani.zip/mappings?anilist_id=${requestedAnimeId}`);
-      let tmdbId = aniZipRes.data?.mappings?.themoviedb_id;
-      let imdbId = aniZipRes.data?.mappings?.imdb_id;
-      const episodesMap = aniZipRes.data?.episodes;
-      
-      let sNum = 1;
-      let eNum = epNum;
-
-      if (episodesMap && (episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum))) {
-          const epData = episodesMap[epNum] || Object.values(episodesMap).find(e => e.episodeNumber == epNum);
-          sNum = epData.seasonNumber || 1;
-          eNum = epData.episodeNumber || epNum;
-      }
-
-      if (!tmdbId && !imdbId) {
-          console.log(`[WATCH] AniZip missing TMDB/IMDB IDs for AniList ID: ${requestedAnimeId}. Searching IMDB fallback...`);
-          try {
-              const aniListRes = await axios.post('https://graphql.anilist.co', {
-                  query: `query ($id: Int) { Media (id: $id, type: ANIME) { title { english romaji } } }`,
-                  variables: { id: parseInt(requestedAnimeId) }
-              });
-              const title = aniListRes.data?.data?.Media?.title?.english || aniListRes.data?.data?.Media?.title?.romaji;
-              if (title) {
-                  let searchTitle = title;
-                  const seasonMatch = title.match(/Season (\d+)|(\d+)(?:nd|th|rd|st) Season/i);
-                  if (seasonMatch) {
-                      sNum = parseInt(seasonMatch[1] || seasonMatch[2]);
-                      searchTitle = title.replace(/Season \d+|\d+(?:nd|th|rd|st) Season/i, '').trim();
-                      // Strip trailing hyphens or colons
-                      searchTitle = searchTitle.replace(/[-:]$/, '').trim();
-                  }
-
-                  console.log(`[WATCH] Querying IMDB with stripped title: "${searchTitle}"`);
-                  const imdbSearch = await axios.get(`https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(searchTitle)}.json`);
-                  const firstMatch = imdbSearch.data?.d?.[0];
-                  if (firstMatch && firstMatch.id) {
-                      imdbId = firstMatch.id;
-                      console.log(`[WATCH] Successfully mapped to IMDB ID via title search: ${imdbId}, Season: ${sNum}`);
-                  }
-              }
-          } catch (e) {
-              console.warn(`[WATCH] IMDB Search Fallback Failed:`, e.message);
+      console.warn(`[WATCH] Consumet fetch failed:`, e.message);
+      try {
+          const query = `query($id:Int){Media(id:$id){title{romaji english}}}`;
+          const r = await fetch(ANILIST_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { id: parseInt(animeId) } }) });
+          const j = await r.json();
+          const title = j?.data?.Media?.title?.romaji || j?.data?.Media?.title?.english || 'anime';
+          const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const targetSlug = `${slug}-episode-${epNum}`;
+          const data = await anilist.fetchEpisodeSources(targetSlug);
+          if (data && data.sources && data.sources.length > 0) {
+             setCache(cacheKey, data);
+             return res.json(data);
           }
-      }
-
-      if (tmdbId || imdbId) {
-          console.log(`[WATCH] Loading Iframe Fallback for TMDB: ${tmdbId || 'N/A'}, IMDB: ${imdbId || 'N/A'}, Season: ${sNum}, Episode: ${eNum}`);
-          const idPath = tmdbId ? tmdbId : imdbId;
-          const payload = {
-              sources: [
-                  { url: `https://vidsrc.me/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                  { url: `https://vidsrc.to/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                  { url: `https://vidsrc.pm/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
-              ],
-              subtitles: []
-          };
-          
-          // 🔥 We DO NOT cache the Vidsrc payload!
-          // This ensures that if AniNeko was just temporarily down, the next refresh will try AniNeko again!
-          return res.json(payload);
-      } else {
-          console.warn(`[WATCH] Completely failed to resolve TMDB or IMDB ID for epNum: ${epNum}`);
-      }
-  } catch (fallbackErr) {
-      console.error("[WATCH] Iframe Fallback failed:", fallbackErr.message);
-  }
-
-  // 🔥 Fetch fresh AniList details to see if this episode just aired or hasn't aired yet
-  try {
-    const aniListRes = await axios.post('https://graphql.anilist.co', {
-      query: `
-        query ($id: Int) {
-          Media (id: $id, type: ANIME) {
-            nextAiringEpisode { airingAt episode }
-            episodes
-          }
-        }`,
-      variables: { id: parseInt(requestedAnimeId) }
-    });
-
-    const media = aniListRes.data?.data?.Media;
-    if (media) {
-      const nextEp = media.nextAiringEpisode;
-      
-      // Scenario A: The episode number requested is higher than what AniList says has aired
-      if (nextEp && parseInt(epNum) >= nextEp.episode) {
-        return res.json({
-          error: "PREMIERE_AWAITING",
-          airingAt: nextEp.airingAt,
-          episode: epNum
-        });
-      }
-      
-      // Scenario B: It's the current episode that just flipped over in the last 3 hours, but no streams exist yet
-      if (nextEp && (parseInt(epNum) === nextEp.episode - 1)) {
-        return res.json({
-          error: "UPLOADING_DELAY",
-          episode: epNum
-        });
+          throw new Error("Slug guesser failed");
+      } catch (err) {
+          console.warn(`[WATCH] Consumet slug guesser failed:`, err.message);
+          return await sendIframeFallback(animeId, epNum);
       }
     }
-  } catch (anilistErr) {
-    console.error("[CRON/FALLBACK] Failed to check AniList safety gap:", anilistErr.message);
   }
 
-  return res.status(404).json({ message: "Stream Unavailable - Episode currently unavailable from all upstream sources." });
+  // Native Gogoanime ID Handler
+  if (episodeId.startsWith('http')) return res.json({ sources: [{ url: episodeId, isM3U8: episodeId.includes('.m3u8'), quality: 'default' }] });
 
+  try {
+    const data = await anilist.fetchEpisodeSources(episodeId);
+    if (data && data.sources && data.sources.length > 0) {
+       setCache(cacheKey, data);
+       return res.json(data);
+    }
+    throw new Error("No sources found");
+  } catch (error) { 
+    console.warn(`[WATCH] Consumet direct fetch failed:`, error.message);
+    const fallbackAnimeId = req.query.animeId || "";
+    if (fallbackAnimeId) {
+        return await sendIframeFallback(fallbackAnimeId, req.query.epNum || "1");
+    }
+    res.status(500).json({ error: "Stream Failed" }); 
+  }
 });
 
 app.listen(preferredPort, host, () => {
