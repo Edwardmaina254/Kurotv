@@ -762,8 +762,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               const checkGroup = (group) => {
                   $ep(`.server-items[data-id="${group}"] [data-video]`).each((i, el) => {
                       const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe.site')) vidUrl = url;
+                      if (url && (url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
+                          if (url.includes('bibiemb.xyz')) vidUrl = url;
                           else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
                       }
                   });
@@ -779,8 +779,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               if (!vidUrl) {
                   $ep('[data-video]').each((i, el) => {
                       const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('vivibebe.site') || url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('vivibebe.site')) vidUrl = url;
+                      if (url && (url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
+                          if (url.includes('bibiemb.xyz')) vidUrl = url;
                           else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
                       }
                   });
@@ -799,13 +799,14 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               else if (vidUrl.includes('?caption_1=')) subtitleUrl = vidUrl.split('?caption_1=')[1].split('&')[0];
               else if (vidUrl.includes('?c1_file=')) subtitleUrl = vidUrl.split('?c1_file=')[1].split('&')[0];
 
+              const providerDomain = new URL(vidUrl).origin + '/';
               const vidRes = await axios.get(vidUrl, { headers: { 'Referer': 'https://anineko.to/' } });
               const m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
               
               if (m3u8Match) {
                   console.log(`[WATCH] ✅ Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
                   const payload = {
-                     headers: { "Referer": "https://vivibebe.site/" },
+                     headers: { "Referer": providerDomain },
                      sources: [{ url: m3u8Match[1], isM3U8: true, quality: 'default' }]
                   };
                   if (subtitleUrl) payload.subtitles = [{ url: subtitleUrl, lang: "English" }];
