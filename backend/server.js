@@ -456,14 +456,31 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/segment';
     return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
   };
-  return manifest.split(/\r?\n/).map(line => {
-    if (!line) return line;
-    if (line.startsWith("#")) {
-      if (line.includes('URI="')) return line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${toProxyUrl(uri)}"`);
-      return line;
+  const rewrittenLines = [];
+  const lines = manifest.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    
+    if (line.startsWith("#EXTINF")) {
+      const nextLine = lines[i + 1];
+      if (nextLine && !nextLine.startsWith("#") && (nextLine.includes('ibytedtos.com') || nextLine.includes('byteimg.com') || nextLine.includes('/ad-'))) {
+        i++; // Skip the URI line
+        continue;
+      }
     }
-    return toProxyUrl(line);
-  }).join("\n");
+    
+    if (line.startsWith("#")) {
+      if (line.includes('URI="')) {
+        rewrittenLines.push(line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${toProxyUrl(uri)}"`));
+      } else {
+        rewrittenLines.push(line);
+      }
+    } else {
+      rewrittenLines.push(toProxyUrl(line));
+    }
+  }
+  return rewrittenLines.join("\n");
 }
 
 app.get('/proxy/stream.m3u8', async (req, res) => {
