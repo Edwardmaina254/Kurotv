@@ -700,11 +700,20 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (candidates.length === 0) return null;
 
       // Intelligent Scoring Algorithm
+      const extractSeason = (str) => {
+          const match = (str || '').toLowerCase().match(/(?:season|part|cour)\s*(\d+)/) || (str || '').toLowerCase().match(/\s+(\d+)$/);
+          return match ? parseInt(match[1]) : null;
+      };
+
       const normalize = (str) => (str || '').toLowerCase().replace(/(season|part|cour)\s*\d+/g, '').replace(/season|part|cour/g, '').replace(/[^a-z0-9]/g, '');
       const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
       const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
       const anilistFormat = anilistData.data.Media.format || '';
       const anilistEps = anilistData.data.Media.episodes || 0;
+      
+      const anilistSeason1 = extractSeason(anilistData.data.Media.title.english);
+      const anilistSeason2 = extractSeason(anilistData.data.Media.title.romaji);
+      const expectedSeason = anilistSeason1 || anilistSeason2;
 
       candidates.forEach(c => {
           let score = 0;
@@ -725,6 +734,13 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
               const diff = Math.abs(anilistEps - c.aniNekoEps);
               if (diff === 0) score += 20;
               else if (diff <= 10) score += 10;
+          }
+          
+          const cSeason = extractSeason(c.aniNekoTitle);
+          if (expectedSeason && cSeason && expectedSeason !== cSeason) {
+              score -= 100; // Heavy penalty for season mismatch
+          } else if (expectedSeason && cSeason && expectedSeason === cSeason) {
+              score += 30;  // Bonus for correct season match
           }
           
           c.score = score;
