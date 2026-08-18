@@ -801,7 +801,20 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
               const providerDomain = new URL(vidUrl).origin + '/';
               const vidRes = await axios.get(vidUrl, { headers: { 'Referer': 'https://anineko.to/' } });
-              const m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
+              let m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
+              
+              if (!m3u8Match) {
+                  const packedMatch = vidRes.data.match(/eval\(function\(p,a,c,k,e,d\).*?split\('\|'\).*?\)\)/);
+                  if (packedMatch) {
+                      try {
+                          const unpackFn = new Function('return ' + packedMatch[0].replace(/^eval/, ''));
+                          const unpacked = unpackFn();
+                          m3u8Match = unpacked.match(/["']([^"']+\.m3u8.*?)["']/);
+                      } catch (e) {
+                          console.warn(`[WATCH] Failed to unpack stream JS for: ${vidUrl}`, e.message);
+                      }
+                  }
+              }
               
               if (m3u8Match) {
                   console.log(`[WATCH] ✅ Global Fix Success! Found working playlist via slug: "${currentSlug}"`);

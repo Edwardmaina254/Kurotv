@@ -586,11 +586,12 @@ export default function AnimeDetails() {
 
     const loadSpecificSource = (source: any) => {
         const finalUrl = source.url.includes('?') ? `${source.url}&cb=${Date.now()}` : `${source.url}?cb=${Date.now()}`;
-        setStreamData({
+        setStreamData((prev: any) => ({
+            ...prev,
             url: finalUrl,
             isIframe: source.isIframe || false,
             isM3U8: source.isM3U8 === true || source.url.includes('.m3u8')
-        });
+        }));
     };
 
     const triggerFallback = (errorDetails?: string) => {
@@ -730,7 +731,14 @@ export default function AnimeDetails() {
                     return 0;
                 });
                 setAvailableSources(sortedSources);
-                loadSpecificSource(sortedSources[0]);
+                
+                const finalUrl = sortedSources[0].url.includes('?') ? `${sortedSources[0].url}&cb=${Date.now()}` : `${sortedSources[0].url}?cb=${Date.now()}`;
+                setStreamData({
+                    ...data,
+                    url: finalUrl,
+                    isIframe: sortedSources[0].isIframe || false,
+                    isM3U8: sortedSources[0].isM3U8 === true || sortedSources[0].url.includes('.m3u8')
+                });
             } else {
                 setStreamError("No stream sources returned from server.");
             }
