@@ -879,14 +879,22 @@ export default function AnimeDetails() {
         if (streamData.isM3U8 && Hls.isSupported()) {
             hls = new Hls({
                 xhrSetup: (xhr) => { xhr.withCredentials = false; },
-                fragLoadingTimeOut: 20000,
-                manifestLoadingTimeOut: 20000,
-                levelLoadingTimeOut: 20000,
-                fragLoadingMaxRetry: 4,
-                manifestLoadingMaxRetry: 4,
-                levelLoadingMaxRetry: 4,
+                // Significantly increase timeouts for slower connections/proxy overhead
+                fragLoadingTimeOut: 120000, 
+                manifestLoadingTimeOut: 120000,
+                levelLoadingTimeOut: 120000,
+                // Increase retries to handle temporary network drops
+                fragLoadingMaxRetry: 6,
+                manifestLoadingMaxRetry: 6,
+                levelLoadingMaxRetry: 6,
+                // Enable Web Worker for parsing
                 enableWorker: true,
-                lowLatencyMode: true
+                // Disable low latency mode as it aggressively times out chunks for VODs
+                lowLatencyMode: false,
+                // Increase buffer size to prevent constant stalling
+                maxBufferLength: 60,
+                maxMaxBufferLength: 120,
+                maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer size
             });
 
             hls.attachMedia(video);
