@@ -453,8 +453,14 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     const absolute = toAbsoluteUrl(trimmed, manifestUrl);
     const isM3U8 = absolute.split('?')[0].endsWith('.m3u8');
     
-    const proxyPath = isM3U8 ? '/proxy/stream.m3u8' : '/proxy/segment';
-    return `${baseUrl}${proxyPath}?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+    const isKey = absolute.split('?')[0].endsWith('.key');
+      if (isM3U8) {
+          return `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+      } else if (isKey) {
+          return `${baseUrl}/proxy/segment?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+      } else {
+          return absolute;
+      }
   };
   const rewrittenLines = [];
   const lines = manifest.split(/\r?\n/);
