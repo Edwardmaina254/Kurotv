@@ -673,7 +673,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
           if (cleanKeyword.includes(':')) cleanKeyword = cleanKeyword.split(':')[0].trim();
           
           console.log(`[WATCH] Searching AniNeko for title: "${cleanKeyword}"...`);
-          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(cleanKeyword));
+          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(cleanKeyword), { timeout: 4000 });
           const $search = cheerio.load(searchRes.data);
           let cands = [];
           $search('.nv-anime-thumb').each((i, el) => {
