@@ -156,7 +156,7 @@ export default function Home() {
                                                         <Play className="w-3.5 h-3.5 md:w-4 md:h-4 ml-0.5 fill-current text-white" />
                                                     </div>
                                                 </div>
-                                                <button onClick={(e) => handleRemoveHistory(e, item.anime_id)} className="absolute top-2 right-2 w-6 h-6 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger cursor-pointer z-10">
+                                                <button onClick={(e) => confirmRemoveHistory(e, { anime_id: item.anime_id, anime_title: item.anime_title })} className="absolute top-2 right-2 w-6 h-6 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger cursor-pointer z-10">
                                                     <X className="w-3 h-3 text-white" />
                                                 </button>
                                                 <span className="absolute top-2 left-2 bg-black/60 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wider">EP {item.episode_number}</span>
