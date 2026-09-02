@@ -647,226 +647,234 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  const extractAniNekoStream = async (anilistId, epNum, requestedLang) => {
+  const extractAnikotoStream = async (anilistId, epNum, requestedLang) => {
     try {
-      console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-      const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
-      const anilistRes = await fetch('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } })
-      });
-      const anilistData = await anilistRes.json();
-      const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
-      if (!title) return null;
+        console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
+        const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
+        const anilistRes = await axios.post("https://graphql.anilist.co", { query, variables: { id: parseInt(anilistId, 10) } }, { headers: { "Content-Type": "application/json", "Accept": "application/json" } });
+        const anilistData = anilistRes.data;
+        const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
+        if (!title) return null;
 
-      const nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
-      const requestedEpNum = parseInt(epNum, 10);
-      if (nextAiring && requestedEpNum >= nextAiring.episode) {
-          console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
-          return { error: 'PREMIERE_AWAITING', airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
-      }
+        const nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
+        const requestedEpNum = parseInt(epNum, 10);
+        if (nextAiring && requestedEpNum >= nextAiring.episode) {
+            console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
+            return { error: "PREMIERE_AWAITING", airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
+        }
 
-      const getCandidates = async (searchKeyword) => {
-          // Clean the keyword to improve search results (remove years like (2011) and split at colon)
-          let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, '').trim();
-          if (cleanKeyword.includes(':')) cleanKeyword = cleanKeyword.split(':')[0].trim();
-          
-          console.log(`[WATCH] Searching AniNeko for title: "${cleanKeyword}"...`);
-          const searchRes = await axios.get('https://anineko.to/browser?keyword=' + encodeURIComponent(cleanKeyword), { timeout: 4000 });
-          const $search = cheerio.load(searchRes.data);
-          let cands = [];
-          $search('.nv-anime-thumb').each((i, el) => {
-              const href = $search(el).attr('href');
-              if (href && href.includes('/watch/')) {
-                  const slug = href.replace('/watch/', '');
-                  const badgeType = $search(el).find('.nv-badge-new').first().text().trim() || $search(el).find('.nv-stat-badge').first().text().trim();
-                  const typeStr = badgeType.toUpperCase();
-                  const ccText = $search(el).find('.nv-stat-cc').text().trim() || $search(el).find('.nv-stat-dub span').text().trim();
-                  const epsCount = parseInt(ccText.replace(/\D/g, '')) || 0;
-                  const titleEl = $search(el).next('.nv-anime-body').find('.nv-anime-title').text().trim();
-                  cands.push({ slug, aniNekoTitle: titleEl, aniNekoType: typeStr, aniNekoEps: epsCount });
-              }
-          });
-          return cands;
-      };
+        const getCandidates = async (searchKeyword) => {
+            let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, "").trim();
+            if (cleanKeyword.includes(":")) cleanKeyword = cleanKeyword.split(":")[0].trim();
+            
+            console.log(`[WATCH] Searching Anikoto for title: "${cleanKeyword}"...`);
+            const searchRes = await axios.get("https://anikototv.to/search?keyword=" + encodeURIComponent(cleanKeyword));
+            const $search = cheerio.load(searchRes.data);
+            let cands = [];
+            
+            $search(".item").each((i, el) => {
+                const a = $search(el).find(".info a.name");
+                const href = a.attr("href");
+                if (href) {
+                    const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
+                    const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase();
+                    let epsCount = 0;
+                    $search(el).find(".m-item").each((j, mEl) => {
+                         if ($search(mEl).text().toLowerCase().includes("sub") || $search(mEl).text().toLowerCase().includes("dub")) {
+                             epsCount = parseInt($search(mEl).find("span").text().trim()) || epsCount;
+                         }
+                    });
+                    const titleEl = a.text().trim();
+                    cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
+                }
+            });
+            return cands;
+        };
 
-      let candidates = [];
-      if (anilistId.toString() === '21') {
-          // Hardcode One Piece to bypass search blocking
-          candidates = [{ slug: 'one-piece', aniNekoTitle: 'One Piece', aniNekoType: 'TV', aniNekoEps: 1100, score: 100 }];
-      } else {
-          candidates = await getCandidates(title);
-          if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-              console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-              candidates = await getCandidates(anilistData.data.Media.title.romaji);
-          }
-      }
+        let candidates = [];
+        if (anilistId.toString() === "21") {
+            candidates = [{ slug: "one-piece-xk681", anikotoTitle: "One Piece", anikotoType: "TV", anikotoEps: 1100, score: 100 }];
+        } else {
+            candidates = await getCandidates(title);
+            if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
+                console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
+                candidates = await getCandidates(anilistData.data.Media.title.romaji);
+            }
+        }
 
-      if (candidates.length === 0) return null;
+        if (candidates.length === 0) return null;
 
-      // Intelligent Scoring Algorithm
-      const extractSeason = (str) => {
-          const match = (str || '').toLowerCase().match(/(?:season|part|cour)\s*(\d+)/) || (str || '').toLowerCase().match(/\s+(\d+)$/);
-          return match ? parseInt(match[1]) : null;
-      };
+        const extractSeason = (str) => {
+            const match = (str || "").toLowerCase().match(/(?:season|part|cour)\s*(\d+)/) || (str || "").toLowerCase().match(/\s+(\d+)$/);
+            return match ? parseInt(match[1]) : null;
+        };
 
-      const normalize = (str) => (str || '').toLowerCase().replace(/(season|part|cour)\s*\d+/g, '').replace(/season|part|cour/g, '').replace(/[^a-z0-9]/g, '');
-      const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
-      const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
-      const anilistFormat = anilistData.data.Media.format || '';
-      const anilistEps = anilistData.data.Media.episodes || 0;
-      
-      const anilistSeason1 = extractSeason(anilistData.data.Media.title.english);
-      const anilistSeason2 = extractSeason(anilistData.data.Media.title.romaji);
-      const expectedSeason = anilistSeason1 || anilistSeason2;
+        const normalize = (str) => (str || "").toLowerCase().replace(/(season|part|cour)\s*\d+/g, "").replace(/season|part|cour/g, "").replace(/[^a-z0-9]/g, "");
+        const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
+        const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
+        const anilistFormat = anilistData.data.Media.format || "";
+        const anilistEps = anilistData.data.Media.episodes || 0;
+        
+        const anilistSeason1 = extractSeason(anilistData.data.Media.title.english);
+        const anilistSeason2 = extractSeason(anilistData.data.Media.title.romaji);
+        const expectedSeason = anilistSeason1 || anilistSeason2;
 
-      candidates.forEach(c => {
-          let score = 0;
-          const cTitleNorm = normalize(c.aniNekoTitle);
-          if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
-              score += 50;
-          } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
-              score += 20;
-          } else if (cTitleNorm && (anilistTitleNorm1.includes(cTitleNorm) || anilistTitleNorm2.includes(cTitleNorm))) {
-              score += 20;
-          }
+        candidates.forEach(c => {
+            let score = 0;
+            const cTitleNorm = normalize(c.anikotoTitle);
+            if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
+                score += 50;
+            } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
+                score += 20;
+            } else if (cTitleNorm && (anilistTitleNorm1.includes(cTitleNorm) || anilistTitleNorm2.includes(cTitleNorm))) {
+                score += 20;
+            }
 
-          if (anilistFormat === 'TV' && c.aniNekoType === 'TV') score += 30;
-          else if (anilistFormat === 'MOVIE' && c.aniNekoType === 'MOVIE') score += 30;
-          else if ((anilistFormat === 'OVA' || anilistFormat === 'ONA') && (c.aniNekoType === 'OVA' || c.aniNekoType === 'ONA')) score += 30;
+            if (anilistFormat === "TV" && c.anikotoType === "TV") score += 30;
+            else if (anilistFormat === "MOVIE" && c.anikotoType === "MOVIE") score += 30;
+            else if ((anilistFormat === "OVA" || anilistFormat === "ONA") && (c.anikotoType === "OVA" || c.anikotoType === "ONA")) score += 30;
 
-          if (anilistEps > 0 && c.aniNekoEps > 0) {
-              const diff = Math.abs(anilistEps - c.aniNekoEps);
-              if (diff === 0) score += 20;
-              else if (diff <= 10) score += 10;
-          }
-          
-          const cSeason = extractSeason(c.aniNekoTitle);
-          if (expectedSeason && cSeason && expectedSeason !== cSeason) {
-              score -= 100; // Heavy penalty for season mismatch
-          } else if (expectedSeason && cSeason && expectedSeason === cSeason) {
-              score += 30;  // Bonus for correct season match
-          }
-          
-          c.score = score;
-      });
+            if (anilistEps > 0 && c.anikotoEps > 0) {
+                const diff = Math.abs(anilistEps - c.anikotoEps);
+                if (diff === 0) score += 20;
+                else if (diff <= 10) score += 10;
+            }
+            
+            const cSeason = extractSeason(c.anikotoTitle);
+            if (expectedSeason && cSeason && expectedSeason !== cSeason) {
+                score -= 100;
+            } else if (expectedSeason && cSeason && expectedSeason === cSeason) {
+                score += 30;
+            }
+            
+            c.score = score;
+        });
 
-      candidates.sort((a, b) => b.score - a.score);
-      
-      let finalCandidates = candidates;
-      if (candidates.length > 0) {
-          const bestScore = candidates[0].score;
-          if (bestScore >= 100) {
-              finalCandidates = candidates.filter(c => c.score >= 100);
-          } else {
-              finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
-          }
-      }
-      const slugs = finalCandidates.map(c => c.slug);
+        candidates.sort((a, b) => b.score - a.score);
+        
+        let finalCandidates = candidates;
+        if (candidates.length > 0) {
+            const bestScore = candidates[0].score;
+            if (bestScore >= 100) {
+                finalCandidates = candidates.filter(c => c.score >= 100);
+            } else {
+                finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
+            }
+        }
+        const slugs = finalCandidates.map(c => c.slug);
 
-      // 2. Loop through every slug found until one successfully returns a master playlist
-      for (const currentSlug of slugs) {
-          try {
-              console.log(`[WATCH] Testing slug candidates: "${currentSlug}" for Episode ${epNum}...`);
-              const epUrl = `https://anineko.to/watch/${currentSlug}/ep-${epNum}`;
-              // validateStatus allows us to bypass 404s gracefully
-              const epRes = await axios.get(epUrl, { validateStatus: () => true });
-              if (epRes.status !== 200) {
-                  console.warn(`[WATCH] Slug "${currentSlug}" does not contain Episode ${epNum}. Moving to next candidate...`);
-                  continue;
-              }
-              const $ep = cheerio.load(epRes.data);
+        for (const currentSlug of slugs) {
+            try {
+                console.log(`[WATCH] Testing slug candidates: "${currentSlug}" for Episode ${epNum}...`);
+                const epPageRes = await axios.get(`https://anikototv.to/watch/${currentSlug}/ep-${epNum}`, { validateStatus: () => true });
+                if (epPageRes.status !== 200) {
+                    console.warn(`[WATCH] Slug "${currentSlug}" does not contain Episode ${epNum}.`);
+                    continue;
+                }
 
-              let vidUrl = '';
-              let targetGroup = requestedLang === 'dub' ? 'dub' : 'sub';
-              
-              const checkGroup = (group) => {
-                  $ep(`.server-items[data-id="${group}"] [data-video]`).each((i, el) => {
-                      const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('bibiemb.xyz')) vidUrl = url;
-                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
-                      }
-                  });
-              };
-              
-              if (targetGroup === 'sub') {
-                  checkGroup('hsub'); 
-                  if (!vidUrl) checkGroup('sub'); 
-              } else {
-                  checkGroup('dub');
-              }
+                const animeIdMatch = epPageRes.data.match(/data-id="([0-9]+)"/);
+                if (!animeIdMatch) {
+                    continue;
+                }
+                const anikotoAnimeId = animeIdMatch[1];
 
-              if (!vidUrl) {
-                  $ep('[data-video]').each((i, el) => {
-                      const url = $ep(el).attr('data-video');
-                      if (url && (url.includes('bibiemb.xyz') || url.includes('otakuhg') || url.includes('playmogo') || url.includes('otakuvid'))) {
-                          if (url.includes('bibiemb.xyz')) vidUrl = url;
-                          else if (!vidUrl && (url.includes('otakuhg') || url.includes('playmogo'))) vidUrl = url;
-                      }
-                  });
-              }
-              
-              // If this specific slug didn't have a video stream for this episode number, continue to next slug
-              if (!vidUrl) {
-                  console.warn(`[WATCH] Slug "${currentSlug}" does not contain valid video URLs. Moving to next candidate...`);
-                  continue; 
-              }
+                const epListRes = await axios.get(`https://anikototv.to/ajax/episode/list/${anikotoAnimeId}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
+                
+                const $epList = cheerio.load(epListRes.data.result);
+                let dataIds = "";
+                $epList("a[data-num]").each((i, el) => {
+                    const number = $epList(el).attr("data-num");
+                    if (number == epNum) {
+                        dataIds = $epList(el).attr("data-ids");
+                    }
+                });
 
-              console.log(`[WATCH] Found active streaming candidate URL: ${vidUrl}`);
+                if (!dataIds) {
+                    console.warn(`[WATCH] Episode ${epNum} not found in episode list for slug "${currentSlug}".`);
+                    continue;
+                }
 
-              let subtitleUrl = null;
-              if (vidUrl.includes('?sub=')) subtitleUrl = vidUrl.split('?sub=')[1].split('&')[0];
-              else if (vidUrl.includes('?caption_1=')) subtitleUrl = vidUrl.split('?caption_1=')[1].split('&')[0];
-              else if (vidUrl.includes('?c1_file=')) subtitleUrl = vidUrl.split('?c1_file=')[1].split('&')[0];
+                const serverListRes = await axios.get(`https://anikototv.to/ajax/server/list?servers=${encodeURIComponent(dataIds)}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
+                const $serverList = cheerio.load(serverListRes.data.result);
+                
+                let linkId = "";
+                let targetGroup = requestedLang === "dub" ? "dub" : "sub";
+                
+                $serverList(`.type[data-type="${targetGroup}"] li`).each((i, el) => {
+                    if (!linkId) linkId = $serverList(el).attr("data-link-id");
+                });
+                
+                if (!linkId && targetGroup === "sub") {
+                    linkId = $serverList("li[data-link-id]").first().attr("data-link-id");
+                }
 
-              const providerDomain = new URL(vidUrl).origin + '/';
-              const vidRes = await axios.get(vidUrl, { headers: { 'Referer': 'https://anineko.to/' } });
-              let m3u8Match = vidRes.data.match(/["']([^"']+\.m3u8.*?)["']/);
-              
-              if (!m3u8Match) {
-                  const packedMatch = vidRes.data.match(/eval\(function\(p,a,c,k,e,d\).*?split\('\|'\).*?\)\)/);
-                  if (packedMatch) {
-                      try {
-                          const unpackFn = new Function('return ' + packedMatch[0].replace(/^eval/, ''));
-                          const unpacked = unpackFn();
-                          m3u8Match = unpacked.match(/["']([^"']+\.m3u8.*?)["']/);
-                      } catch (e) {
-                          console.warn(`[WATCH] Failed to unpack stream JS for: ${vidUrl}`, e.message);
-                      }
-                  }
-              }
-              
-              if (m3u8Match) {
-                  console.log(`[WATCH] ✅ Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
-                  const payload = {
-                     headers: { "Referer": providerDomain },
-                     sources: [{ url: m3u8Match[1], isM3U8: true, quality: 'default' }]
-                  };
-                  if (subtitleUrl) payload.subtitles = [{ url: subtitleUrl, lang: "English" }];
-                  return payload; // Returns payload and breaks execution safely
-              }
-          } catch (innerError) {
-              console.error(`[WATCH] Error processing candidate slug "${currentSlug}":`, innerError.message);
-          }
-      }
-      // If the loop finishes exhausting all slugs and none contained the episode
-      const status = anilistData?.data?.Media?.status;
-      if (status === 'RELEASING' || anilistData?.data?.Media?.nextAiringEpisode) {
-          console.warn(`[WATCH] Episode ${epNum} not found on AniNeko, but anime is currently airing. Assuming UPLOADING_DELAY.`);
-          return { error: 'UPLOADING_DELAY', episode: epNum, notAired: true };
-      }
-      return null;
+                if (!linkId) {
+                    console.warn(`[WATCH] Slug "${currentSlug}" does not contain valid servers for Episode ${epNum}.`);
+                    continue; 
+                }
+
+                console.log(`[WATCH] Extracted Server link ID... Fetching embed...`);
+                const serverRes = await axios.get(`https://anikototv.to/ajax/server?get=${linkId}`, {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
+                const embedUrl = serverRes.data.result.url;
+
+                console.log(`[WATCH] Found embed URL: ${embedUrl}`);
+                
+                const embedRes = await axios.get(embedUrl, {
+                    headers: { "Referer": "https://anikototv.to/" }
+                });
+                
+                const cidMatch = embedRes.data.match(/cid\s*:\s*\'([^\']+)\'/);
+                if (!cidMatch) continue;
+                const cid = cidMatch[1];
+                
+                const sourcesUrl = new URL(embedUrl).origin + `/stream/getSources?id=${cid}`;
+                const sourcesRes = await axios.get(sourcesUrl, {
+                    headers: { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl }
+                });
+                const sourcesJson = sourcesRes.data;
+
+                const videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
+
+                if (videoUrl) {
+                    console.log(`[WATCH] 🎉 Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
+                    const payload = {
+                       headers: { "Referer": new URL(embedUrl).origin + "/" },
+                       sources: [{ url: videoUrl, isM3U8: true, quality: "default" }]
+                    };
+                    
+                    if (sourcesJson.tracks) {
+                        const engTrack = sourcesJson.tracks.find(t => t.label === "English" && t.kind === "captions");
+                        if (engTrack) {
+                            payload.subtitles = [{ url: engTrack.file, lang: "English" }];
+                        }
+                    }
+                    return payload;
+                }
+            } catch (innerError) {
+                console.error(`[WATCH] Error processing candidate slug "${currentSlug}":`, innerError.message);
+            }
+        }
+        
+        const status = anilistData?.data?.Media?.status;
+        if (status === "RELEASING" || anilistData?.data?.Media?.nextAiringEpisode) {
+            return { error: "UPLOADING_DELAY", episode: epNum, notAired: true };
+        }
+        return null;
     } catch (e) {
-      console.error('[AniNeko Extractor] Fatal Error:', e.message);
-      return null;
+        console.error("[Anikoto Extractor] Fatal Error:", e.message);
+        return null;
     }
-  };
+};
 
 
-  try {
-     const payload = await extractAniNekoStream(requestedAnimeId, epNum, lang);
+    try {
+       const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
      if (payload) {
          if (payload.notAired) return res.json(payload);
          const proxyWrapped = {
