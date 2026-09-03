@@ -456,7 +456,8 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     if (isM3U8) {
       return `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
     } else {
-      return `${baseUrl}/proxy/segment?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+      // Proxy heavy video chunks through Cloudflare Worker to save Render bandwidth
+      return `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
     }
   };
   const rewrittenLines = [];
@@ -882,7 +883,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
     try {
        const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
-     if (payload) {
+       if (payload) {
          if (payload.notAired) return res.json(payload);
          const proxyWrapped = {
             ...payload,
