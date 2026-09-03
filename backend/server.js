@@ -646,8 +646,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   epNum = epNum || "1";
 
   const extractAnikotoStream = async (anilistId, epNum, requestedLang) => {
-      if (parseInt(anilistId, 10) === 21) {
-          console.warn(`[WATCH] Skipping Anikoto for One Piece (ID 21) due to Megaplay honeypot. Forcing iframe fallback.`);
+      if ([21, 11061].includes(parseInt(anilistId, 10))) {
+          console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) due to Megaplay honeypot. Forcing iframe fallback.`);
           return null;
       }
       try {
