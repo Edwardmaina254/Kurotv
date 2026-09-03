@@ -35,11 +35,15 @@ export default function Profile() {
     }, [navigate]);
 
     const handleSignOut = async () => { await supabase.auth.signOut(); navigate('/'); };
-    const removeFromWatchlist = async (e: React.MouseEvent, recordId: string) => {
+    const removeFromWatchlist = async (e: React.MouseEvent, animeId: string) => {
         e.stopPropagation();
-        setDeletingId(recordId);
-        const { error } = await supabase.from('watchlist').delete().eq('id', recordId);
-        if (!error) setWatchlist(prev => prev.filter(item => item.id !== recordId));
+        setDeletingId(animeId);
+        const { error } = await supabase.from('watchlist').delete().eq('user_id', user.id).eq('anime_id', animeId);
+        if (!error) {
+            setWatchlist(prev => prev.filter(item => item.anime_id !== animeId));
+        } else {
+            console.error("Failed to remove from watchlist:", error);
+        }
         setDeletingId(null);
     };
     const handleAudioChange = (val: string) => { setDefaultAudio(val); localStorage.setItem('kuro-default-audio', val); };
@@ -107,8 +111,8 @@ export default function Profile() {
                                                     <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end pb-2 md:pb-3 pl-2 md:pl-3">
                                                         <div className="w-7 h-7 md:w-8 md:h-8 bg-accent rounded-full flex items-center justify-center"><Play className="w-3 h-3 md:w-3.5 md:h-3.5 ml-0.5 fill-current text-white" /></div>
                                                     </div>
-                                                    <button onClick={(e) => removeFromWatchlist(e, anime.id)} className="absolute top-2 right-2 w-6 h-6 md:w-7 md:h-7 bg-black/50 hover:bg-danger rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10 cursor-pointer">
-                                                        {deletingId === anime.id ? <Loader2 className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin text-white" /> : <Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />}
+                                                    <button onClick={(e) => removeFromWatchlist(e, anime.anime_id)} className="absolute top-2 right-2 w-6 h-6 md:w-7 md:h-7 bg-black/50 hover:bg-danger rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10 cursor-pointer">
+                                                        {deletingId === anime.anime_id ? <Loader2 className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin text-white" /> : <Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-white" />}
                                                     </button>
                                                     <span className="absolute top-2 left-2 bg-black/60 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wider">{anime.type || 'TV'}</span>
                                                 </div>
