@@ -646,7 +646,11 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   epNum = epNum || "1";
 
   const extractAnikotoStream = async (anilistId, epNum, requestedLang) => {
-    try {
+      if (parseInt(anilistId, 10) === 21) {
+          console.warn(`[WATCH] Skipping Anikoto for One Piece (ID 21) due to Megaplay honeypot. Forcing iframe fallback.`);
+          return null;
+      }
+      try {
         console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
         const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
         const anilistRes = await axios.post("https://graphql.anilist.co", { query, variables: { id: parseInt(anilistId, 10) } }, { headers: { "Content-Type": "application/json", "Accept": "application/json" } });
