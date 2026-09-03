@@ -838,7 +838,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 });
                 
                 const cidMatch = embedRes.data.match(/cid\s*:\s*\'([^\']+)\'/);
-                if (!cidMatch) continue;
+                if (!cidMatch) return null;
                 const cid = cidMatch[1];
                 
                 const sourcesUrl = new URL(embedUrl).origin + `/stream/getSources?id=${cid}`;
