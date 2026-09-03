@@ -702,11 +702,31 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         if (candidates.length === 0) return null;
 
         const extractSeason = (str) => {
-            const match = (str || "").toLowerCase().match(/(?:season|part|cour)\s*(\d+)/) || (str || "").toLowerCase().match(/\s+(\d+)$/);
-            return match ? parseInt(match[1]) : null;
+            if (!str) return null;
+            const s = str.toLowerCase();
+            const m1 = s.match(/(?:season|part|cour)\s*(\d+)/);
+            if (m1) return parseInt(m1[1]);
+            const m2 = s.match(/(\d+)(?:st|nd|rd|th)\s+(?:season|part|cour)/);
+            if (m2) return parseInt(m2[1]);
+            const m3 = s.match(/\s+(\d+)$/);
+            if (m3) return parseInt(m3[1]);
+            const rMatch = s.match(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/);
+            if (rMatch) {
+                const r = rMatch[1];
+                if (r === 'ii') return 2; if (r === 'iii') return 3; if (r === 'iv') return 4; if (r === 'v') return 5;
+                if (r === 'vi') return 6; if (r === 'vii') return 7; if (r === 'viii') return 8; if (r === 'ix') return 9; if (r === 'x') return 10;
+            }
+            return null;
         };
 
-        const normalize = (str) => (str || "").toLowerCase().replace(/(season|part|cour)\s*\d+/g, "").replace(/season|part|cour/g, "").replace(/[^a-z0-9]/g, "");
+        const normalize = (str) => {
+            let s = (str || "").toLowerCase();
+            s = s.replace(/(\d+)(st|nd|rd|th)\s+(season|part|cour)/g, "");
+            s = s.replace(/(season|part|cour)\s*\d+/g, "");
+            s = s.replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/g, "");
+            s = s.replace(/season|part|cour/g, "");
+            return s.replace(/[^a-z0-9]/g, "");
+        };
         const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
         const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
         const anilistFormat = anilistData.data.Media.format || "";
