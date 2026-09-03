@@ -675,12 +675,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 if (href) {
                     const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
                     const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase();
-                    let epsCount = 0;
-                    $search(el).find(".m-item").each((j, mEl) => {
-                         if ($search(mEl).text().toLowerCase().includes("sub") || $search(mEl).text().toLowerCase().includes("dub")) {
-                             epsCount = parseInt($search(mEl).find("span").text().trim()) || epsCount;
-                         }
-                    });
+                    let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
                     const titleEl = a.text().trim();
                     cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
                 }
@@ -688,15 +683,10 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             return cands;
         };
 
-        let candidates = [];
-        if (anilistId.toString() === "21") {
-            candidates = [{ slug: "one-piece-xk681", anikotoTitle: "One Piece", anikotoType: "TV", anikotoEps: 1100, score: 100 }];
-        } else {
-            candidates = await getCandidates(title);
-            if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-                console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-                candidates = await getCandidates(anilistData.data.Media.title.romaji);
-            }
+        let candidates = await getCandidates(title);
+        if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
+            console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
+            candidates = await getCandidates(anilistData.data.Media.title.romaji);
         }
 
         if (candidates.length === 0) return null;
