@@ -646,10 +646,10 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   epNum = epNum || "1";
 
   const extractAnikotoStream = async (anilistId, epNum, requestedLang) => {
-      if ([21, 11061].includes(parseInt(anilistId, 10))) {
-          console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) due to Megaplay honeypot. Forcing iframe fallback.`);
-          return null;
-      }
+    if ([21, 11061, 196187].includes(parseInt(anilistId, 10))) {
+        console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
+        return null;
+    }
       try {
         console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
         const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
@@ -853,6 +853,14 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
                 const videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
 
+                if (sourcesJson.enc && !videoUrl) {
+                    console.log(`[WATCH] ?? Source is encrypted. Falling back to Iframe mode for embedUrl: ${embedUrl}`);
+                    return {
+                        headers: { "Referer": "https://anikototv.to/" },
+                        sources: [{ url: embedUrl, isM3U8: false, isIframe: true, quality: "auto" }]
+                    };
+                }
+
                 if (videoUrl) {
                     console.log(`[WATCH] 🎉 Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
                     const payload = {
@@ -891,12 +899,15 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
          if (payload.notAired) return res.json(payload);
          const proxyWrapped = {
             ...payload,
-            sources: payload.sources.map(st => ({
-               ...st,
-               url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
-               isM3U8: true,
-               isIframe: false
-            }))
+            sources: payload.sources.map(st => {
+                if (st.isIframe) return st;
+                return {
+                    ...st,
+                    url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
+                    isM3U8: true,
+                    isIframe: false
+                };
+            })
          };
          
          if (payload.subtitles && payload.subtitles.length > 0) {
