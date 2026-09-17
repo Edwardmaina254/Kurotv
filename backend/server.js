@@ -513,6 +513,53 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     return res.status(fetchRes.status).send(rewritten);
   } catch (err) { res.status(502).send("Proxy Stream Error"); }
 });
+// Proxy iframe HTML to remove anti-sandbox scripts
+app.get('/proxy/iframe', async (req, res) => {
+  try {
+      const targetUrl = req.query.url;
+      if (!targetUrl) return res.status(400).send('Missing url');
+      
+      const referer = req.query.referer || 'https://anikototv.to/';
+      const response = await axios.get(targetUrl, {
+          headers: { 'Referer': referer, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      
+      let html = response.data;
+      
+      // Inject base tag for relative assets
+      const origin = new URL(targetUrl).origin;
+      html = html.replace(/<head>/i, `<head><base href="${origin}/">`);
+      
+      // Strip out the app.main.js which contains the sandbox check
+      // Find all script tags that include app.main.js
+      let startIndex;
+      while ((startIndex = html.indexOf('<script src="https://megaplay.buzz/lib/app.main.js')) !== -1) {
+          const endIndex = html.indexOf('</script>', startIndex);
+          if (endIndex !== -1) {
+              html = html.substring(0, startIndex) + '<!-- sandbox check removed -->' + html.substring(endIndex + 9);
+          } else break;
+      }
+      
+      // Also try to find relative ones just in case
+      while ((startIndex = html.indexOf('<script src="/lib/app.main.js')) !== -1) {
+          const endIndex = html.indexOf('</script>', startIndex);
+          if (endIndex !== -1) {
+              html = html.substring(0, startIndex) + '<!-- sandbox check removed -->' + html.substring(endIndex + 9);
+          } else break;
+      }
+
+      // Also strip statlytic/nekostream to remove tracking/ads
+      html = html.replace(/<script[^>]*statlytic\.net[^>]*><\/script>/g, '');
+      html = html.replace(/<script[^>]*nekostream\.site[^>]*><\/script>/g, '');
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(html);
+  } catch (error) {
+      console.error('[PROXY IFRAME] Error:', error.message);
+      res.status(500).send("Proxy error");
+  }
+});
 
 app.get('/proxy/segment', async (req, res) => {
   const targetUrl = req.query.url;
@@ -900,7 +947,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
          const proxyWrapped = {
             ...payload,
             sources: payload.sources.map(st => {
-                if (st.isIframe) return st;
+                if (st.isIframe) {
+                    return {
+                        ...st,
+                        url: `${baseUrl}/proxy/iframe?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://anikototv.to/')}`
+                    };
+                }
                 return {
                     ...st,
                     url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
