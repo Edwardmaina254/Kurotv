@@ -552,6 +552,8 @@ app.get('/proxy/iframe', async (req, res) => {
       html = html.replace(/<script[^>]*statlytic\.net[^>]*><\/script>/g, '');
       html = html.replace(/<script[^>]*nekostream\.site[^>]*><\/script>/g, '');
       
+      res.removeHeader('X-Frame-Options');
+      res.removeHeader('Content-Security-Policy');
       res.setHeader('Content-Type', 'text/html');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.send(html);
