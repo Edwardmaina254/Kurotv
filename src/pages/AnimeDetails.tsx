@@ -683,7 +683,7 @@ export default function AnimeDetails() {
 
             const apiUrl = import.meta.env.VITE_API_URL || 'https://kurotv-backend.onrender.com';
             
-            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}&server=${encodeURIComponent(serverToUse)}`;
+            const backendUrl = `${apiUrl}/anime/zoro/watch/${encodeURIComponent(episode.id)}?lang=${modeToUse}&animeId=${parentSeasonId}&epNum=${episode.number}&malId=${resolvedTargetMal}&server=${encodeURIComponent(serverToUse)}&cb=${Date.now()}`;
 
             const res = await fetch(backendUrl);
             const data = await res.json();
