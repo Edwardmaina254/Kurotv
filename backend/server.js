@@ -123,7 +123,7 @@ const timeoutPromise = (promise, ms) => {
   });
 };
 
-const fetchWithBackoff = async (url, options, maxRetries = 2) => {
+const fetchWithBackoff = async (url, options, maxRetries = 1) => {
   const finalOptions = { ...options };
   finalOptions.headers = {
     ...finalOptions.headers,
@@ -133,7 +133,7 @@ const fetchWithBackoff = async (url, options, maxRetries = 2) => {
 
   for (let i = 0; i < maxRetries; i++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     try {
       const response = await fetch(url, { ...finalOptions, signal: controller.signal });
       clearTimeout(timeout);
@@ -942,6 +942,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 };
 
 
+    /* 
     try {
        const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
        if (payload) {
@@ -978,6 +979,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   } catch (err) {
      console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
   }
+  */
   
   // 🟢 NEW GLOBAL IFRAME FALLBACK FOR RELEASING ANIME OR CLOUDFLARE BLOCKS
   try {
@@ -1031,11 +1033,22 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (tmdbId || imdbId) {
           console.log(`[WATCH] Loading Iframe Fallback for TMDB: ${tmdbId || 'N/A'}, IMDB: ${imdbId || 'N/A'}, Season: ${sNum}, Episode: ${eNum}`);
           const idPath = tmdbId ? tmdbId : imdbId;
+          const requestedServer = req.query.server || 'Vidstreaming';
+          let primaryUrl = '';
+          
+          if (requestedServer === 'MegaCloud') {
+              primaryUrl = `https://embed.su/embed/tv/${tmdbId || imdbId}/${sNum}/${eNum}`;
+          } else if (requestedServer === 'StreamSB') {
+              primaryUrl = `https://autoembed.to/tv/imdb/${imdbId}-${sNum}-${eNum}`;
+          } else {
+              primaryUrl = `https://vidsrc.me/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`;
+          }
+
           const payload = {
               sources: [
+                  { url: primaryUrl, isM3U8: false, isIframe: true },
                   { url: `https://vidsrc.me/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                  { url: `https://vidsrc.to/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true },
-                  { url: `https://vidsrc.pm/embed/tv?${tmdbId ? 'tmdb=' + tmdbId : 'imdb=' + imdbId}&season=${sNum}&episode=${eNum}`, isM3U8: false, isIframe: true }
+                  { url: `https://embed.su/embed/tv/${tmdbId || imdbId}/${sNum}/${eNum}`, isM3U8: false, isIframe: true }
               ],
               subtitles: []
           };
