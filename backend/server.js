@@ -406,7 +406,7 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
                 genres: [],
                 rating: 0,
                 status: 'UNKNOWN',
-                totalEpisodes: fallbackData.episodes || 0,
+                totalEpisodes: fallbackData.episodeCount || 0,
                 type: 'TV',
                 releaseDate: 'Unknown',
                 nextAiringEpisode: null,
@@ -672,7 +672,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v5-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v7-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -713,91 +713,138 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  const extractAnikotoStream = async (anilistId, epNum, requestedLang) => {
+  const extractAnikotoStream = async (anilistId, epNum, requestedLang, malId = null) => {
     if ([21, 11061, 196187].includes(parseInt(anilistId, 10))) {
         console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
         return null;
     }
-      try {
-        console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-        const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
-        const anilistRes = await axios.post("https://graphql.anilist.co", { query, variables: { id: parseInt(anilistId, 10) } }, { headers: { "Content-Type": "application/json", "Accept": "application/json" } });
-        const anilistData = anilistRes.data;
-        const title = anilistData?.data?.Media?.title?.english || anilistData?.data?.Media?.title?.romaji;
-        if (!title) return null;
-
-        const nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
-        const requestedEpNum = parseInt(epNum, 10);
-        if (nextAiring && requestedEpNum >= nextAiring.episode) {
-            console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
-            return { error: "PREMIERE_AWAITING", airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
-        }
-
-        const getCandidates = async (searchKeyword) => {
-            let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, "").trim();
-            if (cleanKeyword.includes(":")) cleanKeyword = cleanKeyword.split(":")[0].trim();
+    
+    let titleEng = null;
+    let titleRomaji = null;
+    let format = "TV";
+    let episodes = 0;
+    let nextAiring = null;
+    
+    // 🛡️ NUCLEAR METADATA FALLBACK SYSTEM
+    // First, try the memory cache from the info route
+    const cachedInfo = getCache(`info-${anilistId}`);
+    if (cachedInfo) {
+        titleEng = cachedInfo.title;
+        format = cachedInfo.type;
+        episodes = cachedInfo.totalEpisodes;
+        nextAiring = cachedInfo.nextAiringEpisode;
+    } else {
+        try {
+            console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
+            const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
+            const r = await fetchWithBackoff("https://graphql.anilist.co", { method: 'POST', headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } }) });
+            const anilistData = await r.json();
+            titleEng = anilistData?.data?.Media?.title?.english;
+            titleRomaji = anilistData?.data?.Media?.title?.romaji;
+            format = anilistData?.data?.Media?.format || "TV";
+            episodes = anilistData?.data?.Media?.episodes || 0;
+            nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
+        } catch (err) {
+            console.warn(`[WATCH] AniList failed during Anikoto extraction, falling back to AniZip...`);
+            try {
+                const fallbackReq = await fetch(`https://api.ani.zip/mappings?anilist_id=${anilistId}`);
+                const fallbackData = await fallbackReq.json();
+                titleEng = fallbackData?.titles?.en || fallbackData?.titles?.ro || null;
+                titleRomaji = fallbackData?.titles?.ro || fallbackData?.titles?.en || null;
+                episodes = fallbackData?.episodeCount || 0;
+            } catch(e) {}
             
-            console.log(`[WATCH] Searching Anikoto for title: "${cleanKeyword}"...`);
-            const searchRes = await axios.get("https://anikototv.to/search?keyword=" + encodeURIComponent(cleanKeyword));
-            const $search = cheerio.load(searchRes.data);
-            let cands = [];
-            
-            $search(".item").each((i, el) => {
-                const a = $search(el).find(".info a.name");
-                const href = a.attr("href");
-                if (href) {
-                    const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
-                    const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase() || $search(el).find(".m-item label").eq(1).text().trim().toUpperCase() || $search(el).find(".m-item").eq(1).text().trim().toUpperCase();
-                    let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".m-item span").first().text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
-                    const titleEl = a.text().trim();
-                    cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
-                }
-            });
-            return cands;
-        };
-
-        let candidates = await getCandidates(title);
-        if (candidates.length === 0 && anilistData?.data?.Media?.title?.romaji && anilistData.data.Media.title.romaji !== title) {
-            console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${anilistData.data.Media.title.romaji}"`);
-            candidates = await getCandidates(anilistData.data.Media.title.romaji);
-        }
-
-        if (candidates.length === 0) return null;
-
-        const extractSeason = (str) => {
-            if (!str) return null;
-            const s = str.toLowerCase();
-            const m1 = s.match(/(?:season|part|cour)\s*(\d+)/);
-            if (m1) return parseInt(m1[1]);
-            const m2 = s.match(/(\d+)(?:st|nd|rd|th)\s+(?:season|part|cour)/);
-            if (m2) return parseInt(m2[1]);
-            const m3 = s.match(/\s+(\d+)$/);
-            if (m3) return parseInt(m3[1]);
-            const rMatch = s.match(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/);
-            if (rMatch) {
-                const r = rMatch[1];
-                if (r === 'ii') return 2; if (r === 'iii') return 3; if (r === 'iv') return 4; if (r === 'v') return 5;
-                if (r === 'vi') return 6; if (r === 'vii') return 7; if (r === 'viii') return 8; if (r === 'ix') return 9; if (r === 'x') return 10;
+            if (!titleEng && malId) {
+                console.warn(`[WATCH] AniZip failed, trying Jikan for MAL ID ${malId}...`);
+                try {
+                    const jReq = await fetch(`https://api.jikan.moe/v4/anime/${malId}`);
+                    const jData = await jReq.json();
+                    titleEng = jData.data.title_english || jData.data.title;
+                    titleRomaji = jData.data.title;
+                    episodes = jData.data.episodes || 0;
+                } catch(e) {}
             }
-            return null;
-        };
+        }
+    }
+    
+    const title = titleEng || titleRomaji;
+    if (!title) {
+        console.error(`[WATCH] CRITICAL: Could not resolve title for ID ${anilistId}`);
+        return null;
+    }
 
-        const normalize = (str) => {
-            let s = (str || "").toLowerCase();
-            s = s.replace(/(\d+)(st|nd|rd|th)\s+(season|part|cour)/g, "");
-            s = s.replace(/(season|part|cour)\s*\d+/g, "");
-            s = s.replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/g, "");
-            s = s.replace(/season|part|cour/g, "");
-            return s.replace(/[^a-z0-9]/g, "");
-        };
-        const anilistTitleNorm1 = normalize(anilistData.data.Media.title.english);
-        const anilistTitleNorm2 = normalize(anilistData.data.Media.title.romaji);
-        const anilistFormat = anilistData.data.Media.format || "";
-        const anilistEps = anilistData.data.Media.episodes || 0;
+    const requestedEpNum = parseInt(epNum, 10);
+    if (nextAiring && requestedEpNum >= nextAiring.episode) {
+        console.log(`[WATCH] Episode ${requestedEpNum} of ${title} hasn't aired yet. Airs at: ${nextAiring.airingAt}`);
+        return { error: "PREMIERE_AWAITING", airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
+    }
+
+    const getCandidates = async (searchKeyword) => {
+        let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, "").trim();
+        if (cleanKeyword.includes(":")) cleanKeyword = cleanKeyword.split(":")[0].trim();
         
-        const anilistSeason1 = extractSeason(anilistData.data.Media.title.english);
-        const anilistSeason2 = extractSeason(anilistData.data.Media.title.romaji);
-        const expectedSeason = anilistSeason1 || anilistSeason2;
+        console.log(`[WATCH] Searching Anikoto for title: "${cleanKeyword}"...`);
+        const searchRes = await axios.get("https://anikototv.to/search?keyword=" + encodeURIComponent(cleanKeyword));
+        const $search = cheerio.load(searchRes.data);
+        let cands = [];
+        
+        $search(".item").each((i, el) => {
+            const a = $search(el).find(".info a.name");
+            const href = a.attr("href");
+            if (href) {
+                const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
+                const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase() || $search(el).find(".m-item label").eq(1).text().trim().toUpperCase() || $search(el).find(".m-item").eq(1).text().trim().toUpperCase();
+                let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".m-item span").first().text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
+                const titleEl = a.text().trim();
+                cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
+            }
+        });
+        return cands;
+    };
+
+    let candidates = await getCandidates(title);
+    if (candidates.length === 0 && titleRomaji && titleRomaji !== title) {
+        console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${titleRomaji}"`);
+        candidates = await getCandidates(titleRomaji);
+    }
+
+    if (candidates.length === 0) return null;
+
+    const extractSeason = (str) => {
+        if (!str) return null;
+        const s = str.toLowerCase();
+        const m1 = s.match(/(?:season|part|cour)\s*(\d+)/);
+        if (m1) return parseInt(m1[1]);
+        const m2 = s.match(/(\d+)(?:st|nd|rd|th)\s+(?:season|part|cour)/);
+        if (m2) return parseInt(m2[1]);
+        const m3 = s.match(/\s+(\d+)$/);
+        if (m3) return parseInt(m3[1]);
+        const rMatch = s.match(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/);
+        if (rMatch) {
+            const r = rMatch[1];
+            if (r === 'ii') return 2; if (r === 'iii') return 3; if (r === 'iv') return 4; if (r === 'v') return 5;
+            if (r === 'vi') return 6; if (r === 'vii') return 7; if (r === 'viii') return 8; if (r === 'ix') return 9; if (r === 'x') return 10;
+        }
+        return null;
+    };
+
+    const normalize = (str) => {
+        let s = (str || "").toLowerCase();
+        s = s.replace(/(\d+)(st|nd|rd|th)\s+(season|part|cour)/g, "");
+        s = s.replace(/(season|part|cour)\s*\d+/g, "");
+        s = s.replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/g, "");
+        s = s.replace(/season|part|cour/g, "");
+        return s.replace(/[^a-z0-9]/g, "");
+    };
+    
+    const anilistTitleNorm1 = normalize(titleEng || titleRomaji);
+    const anilistTitleNorm2 = normalize(titleRomaji || titleEng);
+    const anilistFormat = format || "";
+    const anilistEps = episodes || 0;
+    
+    const anilistSeason1 = extractSeason(titleEng);
+    const anilistSeason2 = extractSeason(titleRomaji);
+    const expectedSeason = anilistSeason1 || anilistSeason2;
 
         candidates.forEach(c => {
             let score = 0;
@@ -965,7 +1012,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
     if (requestedServer === 'Vidstreaming') {
         try {
-           const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
+           const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang, req.query.malId);
            if (payload) {
              if (payload.notAired) return res.json(payload);
              const proxyWrapped = {
