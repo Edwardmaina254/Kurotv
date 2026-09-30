@@ -998,15 +998,15 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
             }
         }
         
-        const status = anilistData?.data?.Media?.status;
-        if (status === "RELEASING" || anilistData?.data?.Media?.nextAiringEpisode) {
+
+        if (nextAiring) {
             return { error: "UPLOADING_DELAY", episode: epNum, notAired: true };
         }
         return null;
-    } catch (e) {
-        console.error("[Anikoto Extractor] Fatal Error:", e.message);
-        return null;
-    }
+
+
+
+
 };
 
 
