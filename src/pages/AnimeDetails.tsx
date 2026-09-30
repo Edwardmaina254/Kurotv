@@ -1321,7 +1321,6 @@ export default function AnimeDetails() {
                                                 src={streamData.url}
                                                 className="w-full h-full border-0 absolute inset-0 z-10 bg-black"
                                                 allowFullScreen
-                                                sandbox={activeServer === 'Vidstreaming' ? "allow-same-origin allow-scripts" : undefined}
                                                 allow="autoplay; encrypted-media"
                                             ></iframe>
                                         ) : (

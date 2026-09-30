@@ -747,8 +747,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 const href = a.attr("href");
                 if (href) {
                     const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
-                    const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase();
-                    let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
+                    const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase() || $search(el).find(".m-item label").eq(1).text().trim().toUpperCase() || $search(el).find(".m-item").eq(1).text().trim().toUpperCase();
+                    let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".m-item span").first().text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
                     const titleEl = a.text().trim();
                     cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
                 }
