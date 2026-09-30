@@ -19,6 +19,25 @@ const __dirname = path.dirname(__filename);
 const rssParser = new Parser();
 const activeTorrents = new Map(); // Global cache for running torrent engines
 
+function decryptEnc(enc) {
+    const ENC_KEY_STR = "i?LMTAx0Q6,:}50U";
+    const ENC_IV_STR  = "W0;27ToaUpl_P%'c";
+    const keyBuf = Buffer.alloc(32, 0);
+    Buffer.from(ENC_KEY_STR, 'utf8').copy(keyBuf, 0, 0, Math.min(32, ENC_KEY_STR.length));
+    const ivBuf = Buffer.alloc(16, 0);
+    Buffer.from(ENC_IV_STR, 'utf8').copy(ivBuf, 0, 0, Math.min(16, ENC_IV_STR.length));
+    
+    let b64 = enc.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '===='.slice(pad);
+    const ciphertext = Buffer.from(b64, 'base64');
+    
+    const decipher = createDecipheriv('aes-256-cbc', keyBuf, ivBuf);
+    let decrypted = decipher.update(ciphertext);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return JSON.parse(decrypted.toString('utf8'));
+}
+
 // 🔥 GLOBAL TLS OVERRIDE: Defeats strict Node.js SSL handshake drops
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -900,14 +919,16 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 });
                 const sourcesJson = sourcesRes.data;
 
-                const videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
-
+                let videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
+                
                 if (sourcesJson.enc && !videoUrl) {
-                    console.log(`[WATCH] ?? Source is encrypted. Falling back to Iframe mode for embedUrl: ${embedUrl}`);
-                    return {
-                        headers: { "Referer": "https://anikototv.to/" },
-                        sources: [{ url: embedUrl, isM3U8: false, isIframe: true, quality: "auto" }]
-                    };
+                    try {
+                        const decrypted = decryptEnc(sourcesJson.enc);
+                        videoUrl = decrypted.file || decrypted[0]?.file;
+                        console.log(`[WATCH] Successfully decrypted Megaplay source!`);
+                    } catch (decErr) {
+                        console.error(`[WATCH] Decryption failed:`, decErr.message);
+                    }
                 }
 
                 if (videoUrl) {
@@ -942,44 +963,44 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 };
 
 
-    /* 
-    try {
-       const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
-       if (payload) {
-         if (payload.notAired) return res.json(payload);
-         const proxyWrapped = {
-            ...payload,
-            sources: payload.sources.map(st => {
-                if (st.isIframe) {
+    if (requestedServer === 'Vidstreaming') {
+        try {
+           const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang);
+           if (payload) {
+             if (payload.notAired) return res.json(payload);
+             const proxyWrapped = {
+                ...payload,
+                sources: payload.sources.map(st => {
+                    if (st.isIframe) {
+                        return {
+                            ...st,
+                            url: `${baseUrl}/proxy/iframe?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://anikototv.to/')}`
+                        };
+                    }
                     return {
                         ...st,
-                        url: `${baseUrl}/proxy/iframe?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://anikototv.to/')}`
+                        url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
+                        isM3U8: true,
+                        isIframe: false
                     };
-                }
-                return {
-                    ...st,
-                    url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`,
-                    isM3U8: true,
-                    isIframe: false
-                };
-            })
-         };
-         
-         if (payload.subtitles && payload.subtitles.length > 0) {
-             proxyWrapped.subtitles = payload.subtitles.map(sub => ({
-                 ...sub,
-                 url: `${baseUrl}/proxy/stream?url=${encodeURIComponent(sub.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`
-             }));
+                })
+             };
+             
+             if (payload.subtitles && payload.subtitles.length > 0) {
+                 proxyWrapped.subtitles = payload.subtitles.map(sub => ({
+                     ...sub,
+                     url: `${baseUrl}/proxy/stream?url=${encodeURIComponent(sub.url)}&referer=${encodeURIComponent(payload.headers?.Referer || 'https://vivibebe.site/')}`
+                 }));
+             }
+             
+             const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
+             setCache(cacheKey, enrichedPayload);
+             return res.json(enrichedPayload);
          }
-         
-         const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
-         setCache(cacheKey, enrichedPayload);
-         return res.json(enrichedPayload);
-     }
-  } catch (err) {
-     console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
-  }
-  */
+      } catch (err) {
+         console.warn(`[WATCH] AniNeko pipeline failed:`, err.message);
+      }
+    }
   
   // 🟢 NEW GLOBAL IFRAME FALLBACK FOR RELEASING ANIME OR CLOUDFLARE BLOCKS
   try {
@@ -1033,7 +1054,6 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
       if (tmdbId || imdbId) {
           console.log(`[WATCH] Loading Iframe Fallback for TMDB: ${tmdbId || 'N/A'}, IMDB: ${imdbId || 'N/A'}, Season: ${sNum}, Episode: ${eNum}`);
           const idPath = tmdbId ? tmdbId : imdbId;
-          const requestedServer = req.query.server || 'Vidstreaming';
           let primaryUrl = '';
           
           if (requestedServer === 'MegaCloud') {
