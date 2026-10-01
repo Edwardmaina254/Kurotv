@@ -97,7 +97,7 @@ export const consumetApi = {
   async getAnimeInfo(animeId: string): Promise<AnimeDetails | null> {
     try {
       // Now this hits our instant GraphQL route
-      const response = await fetch(`${CONSUMET_URL}/info/${animeId}`);
+      const response = await fetch(`${CONSUMET_URL}/info/${animeId}?cb=${Date.now()}`);
       if (!response.ok) throw new Error(`Failed: ${response.status}`);
 
       const data = await response.json();
@@ -114,7 +114,7 @@ export const consumetApi = {
   // NEW METHOD: Fetches the episodes separately in the background
   async getAnimeEpisodes(animeId: string): Promise<Episode[]> {
     try {
-      const response = await fetch(`${CONSUMET_URL}/episodes/${animeId}`);
+      const response = await fetch(`${CONSUMET_URL}/episodes/${animeId}?cb=${Date.now()}`);
       if (!response.ok) return [];
       const data = await response.json();
       return data.episodes || [];
