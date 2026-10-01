@@ -714,7 +714,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   epNum = epNum || "1";
 
   const extractAnikotoStream = async (anilistId, epNum, requestedLang, malId = null) => {
-    if ([21, 11061, 196187, 199068].includes(parseInt(anilistId, 10))) {
+    if ([21, 11061, 196187, 199068, 185874].includes(parseInt(anilistId, 10))) {
         console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
         return null;
     }
@@ -978,7 +978,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                     }
                 }
 
-                if (videoUrl) {
+                if (videoUrl) { if (videoUrl.includes("de646eafb46fad3dd363e893401c2db9")) { console.warn("[WATCH] Detected Anikoto bad upload. Skipping to iframe fallback!"); return null; }
                     console.log(`[WATCH] 🎉 Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
                     const payload = {
                        headers: { "Referer": new URL(embedUrl).origin + "/" },
