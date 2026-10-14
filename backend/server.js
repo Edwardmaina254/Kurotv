@@ -12,6 +12,7 @@ import Parser from 'rss-parser';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { extractFromReAnime } from './reanime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -464,7 +465,7 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
 // ==========================================
 function toAbsoluteUrl(url, baseUrl) { try { return new URL(url, baseUrl).toString(); } catch { return url; } }
 
-function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
+function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl, pk = null) {
   const effectiveReferer = referer && referer.trim().length > 0 ? referer : manifestUrl;
   const toProxyUrl = (rawUri) => {
     const trimmed = rawUri.trim();
@@ -473,7 +474,8 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
     const isM3U8 = absolute.split('?')[0].endsWith('.m3u8');
     
     if (isM3U8) {
-      return `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
+      const pkParam = pk ? `&pk=${encodeURIComponent(pk)}` : '';
+      return `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}${pkParam}`;
     } else {
       // Proxy heavy video chunks through Cloudflare Worker to save Render bandwidth
       return `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
@@ -509,6 +511,7 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl) {
 app.get('/proxy/stream.m3u8', async (req, res) => {
   const targetUrl = req.query.url;
   const referer = req.query.referer || 'https://kwik.cx/';
+  const pk = req.query.pk || null;
   if (!targetUrl) return res.status(400).send("Missing URL");
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -522,9 +525,27 @@ app.get('/proxy/stream.m3u8', async (req, res) => {
     if (!fetchRes.ok) return res.status(502).send("Proxy Stream Error");
 
     let manifestText = await fetchRes.text();
+
+    // 🔓 REANIME/FLIXCLOUD XOR MANIFEST DECRYPTION
+    if (pk && !manifestText.startsWith('#EXTM3U')) {
+      try {
+        const keyBuf = Buffer.from(pk, 'base64');
+        const ctBuf = Buffer.from(manifestText.trim(), 'base64');
+        const decBuf = Buffer.alloc(ctBuf.length);
+        for (let i = 0; i < ctBuf.length; i++) {
+          decBuf[i] = ctBuf[i] ^ keyBuf[i % keyBuf.length];
+        }
+        const decText = decBuf.toString('utf8');
+        if (decText.startsWith('#EXTM3U')) {
+          manifestText = decText;
+        }
+      } catch (pkErr) {
+        console.error('[PROXY] Error decrypting manifest with pk:', pkErr.message);
+      }
+    }
     // Do NOT strip codecs. Hls.js needs them to filter unsupported HEVC streams on Windows.
 
-    const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl);
+    const rewritten = rewriteHlsManifest(manifestText, targetUrl, referer, baseUrl, pk);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0');
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
@@ -672,7 +693,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v7-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v8-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -1010,8 +1031,39 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 };
 
 
-    if (requestedServer === 'Vidstreaming') {
+    if (requestedServer === 'Vidstreaming' || requestedServer === 'MegaCloud') {
+        // 🚀 TIER 1: Try ReAnime/Flixcloud first (Direct AniList ID lookup, 0% mismatch, built-in intro/outro skips!)
         try {
+            console.log(`[WATCH] Attempting Tier 1 native ReAnime stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
+            const rePayload = await extractFromReAnime(requestedAnimeId, epNum, lang, req.query.malId);
+            if (rePayload && rePayload.url) {
+                console.log(`[WATCH] 🎉 Tier 1 Success! ReAnime stream resolved for ID ${requestedAnimeId} Ep ${epNum}`);
+                const proxyWrapped = {
+                    headers: { "Referer": "https://flixcloud.cc/" },
+                    sources: [{
+                        url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(rePayload.url)}&referer=${encodeURIComponent('https://flixcloud.cc/')}${rePayload.pk ? `&pk=${encodeURIComponent(rePayload.pk)}` : ''}`,
+                        isM3U8: true,
+                        isIframe: false,
+                        quality: "default"
+                    }],
+                    subtitles: (rePayload.subtitles || []).map(s => ({
+                        url: s.url || s.file,
+                        lang: s.label || s.lang || 'English'
+                    })),
+                    intro: rePayload.intro_chapter ? { start: rePayload.intro_chapter.start, end: rePayload.intro_chapter.end } : null,
+                    outro: rePayload.outro_chapter ? { start: rePayload.outro_chapter.start, end: rePayload.outro_chapter.end } : null
+                };
+                const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
+                setCache(cacheKey, enrichedPayload);
+                return res.json(enrichedPayload);
+            }
+        } catch (reErr) {
+            console.warn(`[WATCH] Tier 1 ReAnime extraction error:`, reErr.message);
+        }
+
+        // 🛡️ TIER 2: Fall back to Anikoto (Megaplay CDN)
+        try {
+           console.log(`[WATCH] Attempting Tier 2 Anikoto stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
            const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang, req.query.malId);
            if (payload) {
              if (payload.notAired) return res.json(payload);
