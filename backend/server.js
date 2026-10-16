@@ -169,7 +169,7 @@ const fetchWithBackoff = async (url, options, maxRetries = 1) => {
   throw new Error("Max retries reached after Rate Limit.");
 };
 
-app.get('/health', (_req, res) => res.json({ ok: true, version: 'watch_v13_anizone' }));
+app.get('/health', (_req, res) => res.json({ ok: true, version: 'watch_v14_nuclear' }));
 
 app.get('/anime/zoro/top-airing', async (req, res) => {
   const cacheKey = 'top-airing';
