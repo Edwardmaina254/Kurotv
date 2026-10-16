@@ -15,14 +15,26 @@ function rt(b64) {
   return Buffer.from(b64, "base64");
 }
 
-async function fetchJson(url, headers = {}) {
-  const referer = headers.Referer || 'https://reanime.to/';
-  const target = proxyUrl(url, referer);
-  const r = await fetch(target, {
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", ...headers },
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
-  return r.json();
+async function fetchAuto(url, headers = {}, isJson = false) {
+    const referer = headers.Referer || 'https://reanime.to/';
+    const uHeaders = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ...headers
+    };
+    
+    // Attempt 1: Direct fetch
+    try {
+        const r = await fetch(url, { headers: uHeaders });
+        if (r.ok) {
+            return isJson ? await r.json() : await r.text();
+        }
+    } catch(e) {}
+
+    // Attempt 2: Via CF Worker Proxy
+    const target = proxyUrl(url, referer);
+    const r = await fetch(target, { headers: uHeaders });
+    if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
+    return isJson ? await r.json() : await r.text();
 }
 
 function le(seed) {
@@ -83,15 +95,7 @@ function extractSsrObj(html) {
 }
 
 export async function decryptFlix(embedUrl) {
-    const target = proxyUrl(embedUrl, 'https://reanime.to/');
-    const r = await fetch(target, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://reanime.to/"
-        }
-    });
-    if (!r.ok) throw new Error(`Embed fetch failed with HTTP ${r.status}`);
-    const html = await r.text();
+    const html = await fetchAuto(embedUrl, { Referer: "https://reanime.to/" }, false);
     
     const data   = eval("(" + extractSsrObj(html) + ")");
     const seed   = data.obfuscation_seed;
@@ -105,7 +109,7 @@ export async function decryptFlix(embedUrl) {
 
     if (!token) throw new Error("Token field missing from embed data");
 
-    const tokData = await fetchJson(`https://flixcloud.cc/api/m3u8/${token}`, { Referer: "https://reanime.to/" });
+    const tokData = await fetchAuto(`https://flixcloud.cc/api/m3u8/${token}`, { Referer: "https://reanime.to/" }, true);
     const vidKey  = sha256hex(token + "vid").substring(0, 10);
     const keyKey  = sha256hex(token + "key").substring(0, 10);
     const v_bytes = rt(tokData[vidKey]);
@@ -136,14 +140,25 @@ export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId =
         let rawUrl = `https://reanime.to/api/flix/${anilistId}/${epNum}`;
         if (malId) rawUrl += `?mal=${malId}`;
         
-        const target = proxyUrl(rawUrl, 'https://reanime.to/');
-        const res = await axios.get(target, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://reanime.to/'
-            },
-            timeout: 10000
-        });
+        let res = null;
+        try {
+            res = await axios.get(rawUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Referer': 'https://reanime.to/'
+                },
+                timeout: 8000
+            });
+        } catch (directErr) {
+            const target = proxyUrl(rawUrl, 'https://reanime.to/');
+            res = await axios.get(target, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://reanime.to/'
+                },
+                timeout: 8000
+            });
+        }
         
         if (!res.data?.success || !res.data?.servers?.length) {
             console.warn(`[REANIME] No servers found for ID ${anilistId} Ep ${epNum}. Response was:`, JSON.stringify(res.data));

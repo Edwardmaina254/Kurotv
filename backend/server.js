@@ -483,6 +483,22 @@ app.get('/debug/cf-worker', async (req, res) => {
     }
 });
 
+app.get('/debug/direct-reanime', async (req, res) => {
+    try {
+        const testUrl = req.query.url || 'https://reanime.to/api/flix/163134/1';
+        const directRes = await axios.get(testUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': 'https://reanime.to/'
+            },
+            timeout: 10000
+        });
+        return res.json({ success: true, status: directRes.status, data: directRes.data });
+    } catch (e) {
+        return res.status(500).json({ error: e.message, status: e.response?.status, data: e.response?.data });
+    }
+});
+
 // ==========================================
 // 🛡️ DYNAMIC SSL PROXY ROUTES (NUCLEAR REWRITE PIPELINE)
 // ==========================================
@@ -716,7 +732,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any stale mismatched links
-  const cacheKey = `watch_v11-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v12-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -1069,7 +1085,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 const BAD_VIDEO_HASHES = [
                     'de646eafb46fad3dd363e893401c2db9', // Corrupted 'Let This Grieving Soul Retire'
                     '4a15fc6d75970e9607efa44697977f2b', // Corrupted 'Yi Shi Zhi Zun' Chinese anime
-                    'a6b29f44689a251472222db60d920e6c'  // Corrupted golf anime short
+                    'a6b29f44689a251472222db60d920e6c', // Corrupted golf anime short
+                    '76d4a91e4e3ee83a467a2d783f390257'  // Corrupted Chinese Donghua short
                 ];
 
                 for (const srv of availableServers) {
