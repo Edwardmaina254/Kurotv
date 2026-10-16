@@ -716,7 +716,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any stale mismatched links
-  const cacheKey = `watch_v10-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v11-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -1061,10 +1061,15 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                     continue; 
                 }
 
+                // Prioritize Vidstream-2 and Vidstream-1 over HD-1 (HD-1 frequently has corrupted/mini uploads)
+                const srvPriority = { 'Vidstream-2': 1, 'Vidstream-1': 2, 'HD-2': 3, 'HD-1': 4 };
+                availableServers.sort((a, b) => (srvPriority[a.name] || 99) - (srvPriority[b.name] || 99));
+
                 // 🛡️ Known corrupted/mismatched video hashes uploaded by Anikoto/Megaplay
                 const BAD_VIDEO_HASHES = [
                     'de646eafb46fad3dd363e893401c2db9', // Corrupted 'Let This Grieving Soul Retire'
-                    '4a15fc6d75970e9607efa44697977f2b'  // Corrupted 'Yi Shi Zhi Zun' Chinese anime
+                    '4a15fc6d75970e9607efa44697977f2b', // Corrupted 'Yi Shi Zhi Zun' Chinese anime
+                    'a6b29f44689a251472222db60d920e6c'  // Corrupted golf anime short
                 ];
 
                 for (const srv of availableServers) {
