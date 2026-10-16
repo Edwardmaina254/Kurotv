@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractFromReAnime } from './reanime.js';
+import { extractFromAniZone } from './anizone.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -515,6 +516,9 @@ function rewriteHlsManifest(manifest, manifestUrl, referer, baseUrl, pk = null) 
     if (isM3U8) {
       const pkParam = pk ? `&pk=${encodeURIComponent(pk)}` : '';
       return `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}${pkParam}`;
+    } else if (absolute.includes('.key') || absolute.includes('xin-cdn.xyz') || absolute.includes('vid-cdn.xyz')) {
+      // Direct stream through backend proxy to bypass CF worker loop block
+      return `${baseUrl}/proxy/stream?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
     } else {
       // Proxy heavy video chunks through Cloudflare Worker to save Render bandwidth
       return `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(effectiveReferer)}`;
@@ -691,6 +695,7 @@ app.get('/proxy/stream', async (req, res) => {
     let upstreamType = (response.headers['content-type'] || 'video/mp2t').toLowerCase();
     if (upstreamType.includes('audio/,') || upstreamType.includes('text/plain')) upstreamType = 'video/mp2t';
     if (targetUrl.includes('.vtt')) upstreamType = 'text/vtt';
+    if (targetUrl.includes('.key')) upstreamType = 'application/octet-stream';
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
@@ -732,7 +737,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any stale mismatched links
-  const cacheKey = `watch_v12-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v13-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -774,8 +779,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   epNum = epNum || "1";
 
   const extractAnikotoStream = async (anilistId, epNum, requestedLang, malId = null) => {
-    if ([21, 11061, 196187, 199068, 185874].includes(parseInt(anilistId, 10))) {
-        console.warn(`[WATCH] Skipping Anikoto for One Piece (21) / HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
+    if ([11061, 196187, 199068, 185874].includes(parseInt(anilistId, 10))) {
+        console.warn(`[WATCH] Skipping Anikoto for HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
         return null;
     }
     
@@ -1163,12 +1168,45 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
 
     if (requestedServer === 'Vidstreaming' || requestedServer === 'MegaCloud') {
-        // 🚀 TIER 1: Try ReAnime/Flixcloud first (Direct AniList ID lookup, 0% mismatch, built-in intro/outro skips!)
+        // 🚀 TIER 1: Try AniZone (Authentic HD HLS streams, dual-audio, zero mismatches, verified unpoisoned!)
         try {
-            console.log(`[WATCH] Attempting Tier 1 native ReAnime stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
+            console.log(`[WATCH] Attempting Tier 1 native AniZone stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
+            const azPayload = await extractFromAniZone(requestedAnimeId, epNum, lang, req.query.malId);
+            if (azPayload) {
+                if (azPayload.notAired) return res.json(azPayload);
+                if (azPayload.sources && azPayload.sources.length > 0 && azPayload.sources[0].url) {
+                    console.log(`[WATCH] 🎉 Tier 1 Success! AniZone stream resolved for ID ${requestedAnimeId} Ep ${epNum}`);
+                    const proxyWrapped = {
+                        headers: azPayload.headers || { "Referer": "https://anizone.to/" },
+                        sources: azPayload.sources.map(st => ({
+                            ...st,
+                            url: `${baseUrl}/proxy/stream.m3u8?url=${encodeURIComponent(st.url)}&referer=${encodeURIComponent(azPayload.headers?.Referer || 'https://anizone.to/')}`,
+                            isM3U8: true,
+                            isIframe: false,
+                            quality: "default"
+                        })),
+                        subtitles: (azPayload.subtitles || []).map(sub => ({
+                            ...sub,
+                            url: `${baseUrl}/proxy/stream?url=${encodeURIComponent(sub.url)}&referer=${encodeURIComponent(azPayload.headers?.Referer || 'https://anizone.to/')}`
+                        })),
+                        storyboard: azPayload.storyboard,
+                        chapters: azPayload.chapters
+                    };
+                    const enrichedPayload = await enrichWithSkipTimes(proxyWrapped, requestedAnimeId, epNum);
+                    setCache(cacheKey, enrichedPayload);
+                    return res.json(enrichedPayload);
+                }
+            }
+        } catch (azErr) {
+            console.warn(`[WATCH] Tier 1 AniZone extraction error:`, azErr.message);
+        }
+
+        // 🚀 TIER 2: Try ReAnime/Flixcloud
+        try {
+            console.log(`[WATCH] Attempting Tier 2 native ReAnime stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
             const rePayload = await extractFromReAnime(requestedAnimeId, epNum, lang, req.query.malId);
             if (rePayload && rePayload.url) {
-                console.log(`[WATCH] 🎉 Tier 1 Success! ReAnime stream resolved for ID ${requestedAnimeId} Ep ${epNum}`);
+                console.log(`[WATCH] 🎉 Tier 2 Success! ReAnime stream resolved for ID ${requestedAnimeId} Ep ${epNum}`);
                 const proxyWrapped = {
                     headers: { "Referer": "https://flixcloud.cc/" },
                     sources: [{
@@ -1189,12 +1227,12 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 return res.json(enrichedPayload);
             }
         } catch (reErr) {
-            console.warn(`[WATCH] Tier 1 ReAnime extraction error:`, reErr.message);
+            console.warn(`[WATCH] Tier 2 ReAnime extraction error:`, reErr.message);
         }
 
-        // 🛡️ TIER 2: Fall back to Anikoto (Megaplay CDN)
+        // 🛡️ TIER 3: Fall back to Anikoto (Megaplay CDN)
         try {
-           console.log(`[WATCH] Attempting Tier 2 Anikoto stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
+           console.log(`[WATCH] Attempting Tier 3 Anikoto stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
            const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang, req.query.malId);
            if (payload) {
              if (payload.notAired) return res.json(payload);
