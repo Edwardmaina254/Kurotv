@@ -462,10 +462,24 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
 
 app.get('/debug/reanime/:id/:ep', async (req, res) => {
     try {
-        const re = await extractFromReAnime(req.params.id, req.params.ep, 'sub');
+        const re = await extractFromReAnime(req.params.id, req.params.ep, 'sub', null, true);
         return res.json({ success: true, re });
     } catch (e) {
         return res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
+app.get('/debug/cf-worker', async (req, res) => {
+    try {
+        const testUrl = req.query.url || 'https://reanime.to/api/flix/102883/1';
+        const proxyUrl = `https://kurotv-proxy.felixnjuguna31.workers.dev/?url=${encodeURIComponent(testUrl)}&referer=${encodeURIComponent('https://reanime.to/')}`;
+        const cfRes = await axios.get(proxyUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            timeout: 10000
+        });
+        return res.json({ success: true, status: cfRes.status, data: cfRes.data });
+    } catch (e) {
+        return res.status(500).json({ error: e.message, status: e.response?.status, data: e.response?.data });
     }
 });
 
@@ -701,8 +715,8 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   const targetProviderKey = serverMap[requestedServer] || 'zoro';
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
-  // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v9-${episodeId}-${lang}-${targetProviderKey}`;
+  // 🔥 BUST CACHE AGAIN to clear out any stale mismatched links
+  const cacheKey = `watch_v10-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -809,35 +823,63 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         return { error: "PREMIERE_AWAITING", airingAt: nextAiring.airingAt, episode: requestedEpNum, notAired: true };
     }
 
-    const getCandidates = async (searchKeyword) => {
-        let cleanKeyword = searchKeyword.replace(/\s*\(\d{4}\)\s*$/, "").trim();
-        if (cleanKeyword.includes(":")) cleanKeyword = cleanKeyword.split(":")[0].trim();
-        
-        console.log(`[WATCH] Searching Anikoto for title: "${cleanKeyword}"...`);
-        const searchRes = await axios.get("https://anikototv.to/search?keyword=" + encodeURIComponent(cleanKeyword));
-        const $search = cheerio.load(searchRes.data);
-        let cands = [];
-        
-        $search(".item").each((i, el) => {
-            const a = $search(el).find(".info a.name");
-            const href = a.attr("href");
-            if (href) {
-                const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
-                const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase() || $search(el).find(".m-item label").eq(1).text().trim().toUpperCase() || $search(el).find(".m-item").eq(1).text().trim().toUpperCase();
-                let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".m-item span").first().text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
-                const titleEl = a.text().trim();
-                cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
-            }
-        });
-        return cands;
+    const searchAnikoto = async (keyword) => {
+        if (!keyword || !keyword.trim()) return [];
+        const cleanKeyword = keyword.replace(/\s*\(\d{4}\)\s*$/, "").trim();
+        if (!cleanKeyword) return [];
+        try {
+            console.log(`[WATCH] Searching Anikoto for: "${cleanKeyword}"...`);
+            const searchRes = await axios.get("https://anikototv.to/search?keyword=" + encodeURIComponent(cleanKeyword), { timeout: 8000 });
+            const $search = cheerio.load(searchRes.data);
+            let cands = [];
+            $search(".item").each((i, el) => {
+                const a = $search(el).find(".info a.name");
+                const href = a.attr("href");
+                if (href) {
+                    const slug = href.replace("https://anikototv.to/watch/", "").split("/")[0];
+                    const typeStr = $search(el).find(".meta .right").first().text().trim().toUpperCase() || $search(el).find(".m-item label").eq(1).text().trim().toUpperCase() || $search(el).find(".m-item").eq(1).text().trim().toUpperCase();
+                    let epsCount = parseInt($search(el).find(".ep-status.sub span").text().trim()) || parseInt($search(el).find(".m-item span").first().text().trim()) || parseInt($search(el).find(".ep-status.total span").text().trim()) || 0;
+                    const titleEl = a.text().trim();
+                    cands.push({ slug, anikotoTitle: titleEl, anikotoType: typeStr, anikotoEps: epsCount });
+                }
+            });
+            return cands;
+        } catch (e) {
+            console.warn(`[WATCH] Anikoto search error for "${cleanKeyword}":`, e.message);
+            return [];
+        }
     };
 
-    let candidates = await getCandidates(title);
-    if (candidates.length === 0 && titleRomaji && titleRomaji !== title) {
-        console.log(`[WATCH] English search yielded 0 results, attempting Romaji: "${titleRomaji}"`);
-        candidates = await getCandidates(titleRomaji);
+    const candidateMap = new Map();
+    const addCandidates = (list) => {
+        list.forEach(c => {
+            if (!candidateMap.has(c.slug)) candidateMap.set(c.slug, c);
+        });
+    };
+
+    // Primary search: full English title
+    if (titleEng) addCandidates(await searchAnikoto(titleEng));
+    // Secondary search: Romaji title
+    if (candidateMap.size === 0 && titleRomaji && titleRomaji !== titleEng) {
+        addCandidates(await searchAnikoto(titleRomaji));
+    }
+    // Sub-search 1: Replace colons with spaces
+    if (candidateMap.size === 0 && title.includes(":")) {
+        addCandidates(await searchAnikoto(title.replace(/:/g, " ")));
+    }
+    // Sub-search 2: Replace hyphens with spaces
+    if (candidateMap.size === 0 && title.includes("-")) {
+        addCandidates(await searchAnikoto(title.replace(/-/g, " ")));
+    }
+    // Fallback search: Only if still 0 candidates, try prefix before colon if prefix >= 4 chars and not 're'
+    if (candidateMap.size === 0 && title.includes(":")) {
+        const prefix = title.split(":")[0].trim();
+        if (prefix.length >= 4 && prefix.toLowerCase() !== "re") {
+            addCandidates(await searchAnikoto(prefix));
+        }
     }
 
+    let candidates = Array.from(candidateMap.values());
     if (candidates.length === 0) return null;
 
     const extractSeason = (str) => {
@@ -847,13 +889,25 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         if (m1) return parseInt(m1[1]);
         const m2 = s.match(/(\d+)(?:st|nd|rd|th)\s+(?:season|part|cour)/);
         if (m2) return parseInt(m2[1]);
-        const m3 = s.match(/\s+(\d+)$/);
-        if (m3) return parseInt(m3[1]);
-        const rMatch = s.match(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/);
+        const rMatch = s.match(/\b(ii|iii|iv|v|vi|vii|viii|ix|x)\b/);
         if (rMatch) {
-            const r = rMatch[1];
-            if (r === 'ii') return 2; if (r === 'iii') return 3; if (r === 'iv') return 4; if (r === 'v') return 5;
-            if (r === 'vi') return 6; if (r === 'vii') return 7; if (r === 'viii') return 8; if (r === 'ix') return 9; if (r === 'x') return 10;
+            const map = { ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+            if (map[rMatch[1]]) return map[rMatch[1]];
+        }
+        // Known subtitle aliases
+        if (s.includes('golden wind')) return 5;
+        if (s.includes('diamond is unbreakable')) return 4;
+        if (s.includes('stardust crusaders')) return 3;
+        if (s.includes('stone ocean')) return 6;
+        if (s.includes('phantom blood')) return 1;
+        if (s.includes('battle tendency')) return 2;
+        if (s.includes('the conflict')) return 3;
+        if (s.includes('the separation')) return 2;
+        if (s.includes('the calamity')) return 4;
+        const m3 = s.match(/\s+(\d+)$/);
+        if (m3) {
+            const num = parseInt(m3[1]);
+            if (num > 0 && num <= 20) return num;
         }
         return null;
     };
@@ -862,63 +916,91 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         let s = (str || "").toLowerCase();
         s = s.replace(/(\d+)(st|nd|rd|th)\s+(season|part|cour)/g, "");
         s = s.replace(/(season|part|cour)\s*\d+/g, "");
-        s = s.replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/g, "");
+        s = s.replace(/\b(ii|iii|iv|v|vi|vii|viii|ix|x)\b/g, "");
         s = s.replace(/season|part|cour/g, "");
         return s.replace(/[^a-z0-9]/g, "");
     };
-    
-    const anilistTitleNorm1 = normalize(titleEng || titleRomaji);
-    const anilistTitleNorm2 = normalize(titleRomaji || titleEng);
-    const anilistFormat = format || "";
+
+    const getTokens = (str) => {
+        if (!str) return new Set();
+        const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'no', 'na', 'ni', 'wo', 'ga', 'wa', 'season', 'part', 'cour', 'tv', 'movie', 'ova', 'ona']);
+        return new Set(
+            str.toLowerCase()
+               .replace(/[^a-z0-9\s]/g, ' ')
+               .split(/\s+/)
+               .filter(t => t.length > 1 && !stopWords.has(t))
+        );
+    };
+
+    const anilistTitleNorm1 = normalize(titleEng);
+    const anilistTitleNorm2 = normalize(titleRomaji);
+    const anilistFormat = (format || "").toUpperCase();
     const anilistEps = episodes || 0;
-    
-    const anilistSeason1 = extractSeason(titleEng);
-    const anilistSeason2 = extractSeason(titleRomaji);
-    const expectedSeason = anilistSeason1 || anilistSeason2;
+    const expectedSeason = extractSeason(titleEng) || extractSeason(titleRomaji);
+    const metaTokens = new Set([...getTokens(titleEng), ...getTokens(titleRomaji)]);
 
-        candidates.forEach(c => {
-            let score = 0;
-            const cTitleNorm = normalize(c.anikotoTitle);
-            if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
-                score += 50;
-            } else if (cTitleNorm && (cTitleNorm.includes(anilistTitleNorm1) || cTitleNorm.includes(anilistTitleNorm2))) {
-                score += 20;
-            } else if (cTitleNorm && (anilistTitleNorm1.includes(cTitleNorm) || anilistTitleNorm2.includes(cTitleNorm))) {
-                score += 20;
-            }
-
-            if (anilistFormat === "TV" && c.anikotoType === "TV") score += 30;
-            else if (anilistFormat === "MOVIE" && c.anikotoType === "MOVIE") score += 30;
-            else if ((anilistFormat === "OVA" || anilistFormat === "ONA") && (c.anikotoType === "OVA" || c.anikotoType === "ONA")) score += 30;
-
-            if (anilistEps > 0 && c.anikotoEps > 0) {
-                const diff = Math.abs(anilistEps - c.anikotoEps);
-                if (diff === 0) score += 20;
-                else if (diff <= 10) score += 10;
-            }
-            
-            const cSeason = extractSeason(c.anikotoTitle);
-            if (expectedSeason && cSeason && expectedSeason !== cSeason) {
-                score -= 100;
-            } else if (expectedSeason && cSeason && expectedSeason === cSeason) {
-                score += 30;
-            }
-            
-            c.score = score;
-        });
-
-        candidates.sort((a, b) => b.score - a.score);
+    candidates.forEach(c => {
+        let score = 0;
+        const cTitleNorm = normalize(c.anikotoTitle);
         
-        let finalCandidates = candidates;
-        if (candidates.length > 0) {
-            const bestScore = candidates[0].score;
-            if (bestScore >= 100) {
-                finalCandidates = candidates.filter(c => c.score >= 100);
-            } else {
-                finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
+        // 1. Exact normalized title match
+        if (cTitleNorm && (cTitleNorm === anilistTitleNorm1 || cTitleNorm === anilistTitleNorm2)) {
+            score += 80;
+        } else {
+            // Token overlap (Jaccard similarity)
+            const cTokens = getTokens(c.anikotoTitle);
+            let matchCount = 0;
+            cTokens.forEach(t => {
+                if (metaTokens.has(t)) matchCount++;
+            });
+            if (metaTokens.size > 0 && cTokens.size > 0) {
+                const jaccard = matchCount / Math.max(metaTokens.size, cTokens.size);
+                score += Math.round(jaccard * 70);
             }
         }
-        const slugs = finalCandidates.map(c => c.slug);
+
+        // 2. Season/Part matching
+        const cSeason = extractSeason(c.anikotoTitle);
+        if (expectedSeason && cSeason) {
+            if (expectedSeason === cSeason) score += 40;
+            else score -= 150; // Severe penalty: incompatible season!
+        } else if (expectedSeason && !cSeason) {
+            if (expectedSeason > 1) score -= 60; // Expected later season, candidate is bare franchise
+        }
+
+        // 3. Format matching
+        if (anilistFormat && c.anikotoType) {
+            const cf = c.anikotoType.toUpperCase();
+            if (anilistFormat === cf) score += 20;
+            else if ((anilistFormat === 'TV' && cf === 'MOVIE') || (anilistFormat === 'MOVIE' && cf === 'TV')) {
+                score -= 50;
+            }
+        }
+
+        // 4. Episode count similarity
+        if (anilistEps > 0 && c.anikotoEps > 0) {
+            const diff = Math.abs(anilistEps - c.anikotoEps);
+            if (diff === 0) score += 20;
+            else if (diff <= 3) score += 10;
+            else if (diff > 30) score -= 30;
+        }
+
+        c.score = score;
+    });
+
+    // Filter out candidates with low score (< 50) and sort descending
+    candidates = candidates.filter(c => c.score >= 50);
+    candidates.sort((a, b) => b.score - a.score);
+
+    if (candidates.length === 0) {
+        console.warn(`[WATCH] No Anikoto candidates passed the similarity score threshold (>= 50) for "${title}"`);
+        return null;
+    }
+
+    const bestScore = candidates[0].score;
+    const finalCandidates = candidates.filter(c => c.score >= bestScore - 20);
+    const slugs = finalCandidates.map(c => c.slug);
+    console.log(`[WATCH] Top candidate: "${candidates[0].anikotoTitle}" with score ${bestScore}. Slugs:`, slugs);
 
         for (const currentSlug of slugs) {
             try {

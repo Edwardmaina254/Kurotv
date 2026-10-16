@@ -131,7 +131,7 @@ export async function decryptFlix(embedUrl) {
     };
 }
 
-export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId = null) {
+export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId = null, throwError = false) {
     try {
         let rawUrl = `https://reanime.to/api/flix/${anilistId}/${epNum}`;
         if (malId) rawUrl += `?mal=${malId}`;
@@ -146,6 +146,8 @@ export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId =
         });
         
         if (!res.data?.success || !res.data?.servers?.length) {
+            console.warn(`[REANIME] No servers found for ID ${anilistId} Ep ${epNum}. Response was:`, JSON.stringify(res.data));
+            if (throwError) throw new Error(`No servers found: ${JSON.stringify(res.data)}`);
             return null;
         }
         
@@ -154,10 +156,14 @@ export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId =
                     || res.data.servers.find(s => s.dataType === targetType)
                     || res.data.servers[0];
                     
-        if (!server?.dataLink) return null;
+        if (!server?.dataLink) {
+            if (throwError) throw new Error("No dataLink found on server");
+            return null;
+        }
         return await decryptFlix(server.dataLink);
     } catch (e) {
         console.warn(`[REANIME] Extraction failed for ID ${anilistId} Ep ${epNum}:`, e.message);
+        if (throwError) throw e;
         return null;
     }
 }
