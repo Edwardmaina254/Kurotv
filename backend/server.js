@@ -693,7 +693,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any fast4speed links cached before the poison pill
-  const cacheKey = `watch_v8-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v9-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -949,70 +949,88 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 });
                 const $serverList = cheerio.load(serverListRes.data.result);
                 
-                let linkId = "";
                 let targetGroup = requestedLang === "dub" ? "dub" : "sub";
-                
+                const availableServers = [];
                 $serverList(`.type[data-type="${targetGroup}"] li`).each((i, el) => {
-                    if (!linkId) linkId = $serverList(el).attr("data-link-id");
+                    const lId = $serverList(el).attr("data-link-id");
+                    const sName = $serverList(el).text().trim();
+                    if (lId) availableServers.push({ name: sName, linkId: lId });
                 });
                 
-                if (!linkId && targetGroup === "sub") {
-                    linkId = $serverList("li[data-link-id]").first().attr("data-link-id");
+                if (availableServers.length === 0 && targetGroup === "sub") {
+                    $serverList("li[data-link-id]").each((i, el) => {
+                        const lId = $serverList(el).attr("data-link-id");
+                        const sName = $serverList(el).text().trim();
+                        if (lId) availableServers.push({ name: sName, linkId: lId });
+                    });
                 }
 
-                if (!linkId) {
+                if (availableServers.length === 0) {
                     console.warn(`[WATCH] Slug "${currentSlug}" does not contain valid servers for Episode ${epNum}.`);
                     continue; 
                 }
 
-                console.log(`[WATCH] Extracted Server link ID... Fetching embed...`);
-                const serverRes = await axios.get(`https://anikototv.to/ajax/server?get=${linkId}`, {
-                    headers: { "X-Requested-With": "XMLHttpRequest" }
-                });
-                const embedUrl = serverRes.data.result.url;
+                // 🛡️ Known corrupted/mismatched video hashes uploaded by Anikoto/Megaplay
+                const BAD_VIDEO_HASHES = [
+                    'de646eafb46fad3dd363e893401c2db9', // Corrupted 'Let This Grieving Soul Retire'
+                    '4a15fc6d75970e9607efa44697977f2b'  // Corrupted 'Yi Shi Zhi Zun' Chinese anime
+                ];
 
-                console.log(`[WATCH] Found embed URL: ${embedUrl}`);
-                
-                const embedRes = await axios.get(embedUrl, {
-                    headers: { "Referer": "https://anikototv.to/" }
-                });
-                
-                const cidMatch = embedRes.data.match(/cid\s*:\s*\'([^\']+)\'/);
-                if (!cidMatch) return null;
-                const cid = cidMatch[1];
-                
-                const sourcesUrl = new URL(embedUrl).origin + `/stream/getSources?id=${cid}`;
-                const sourcesRes = await axios.get(sourcesUrl, {
-                    headers: { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl }
-                });
-                const sourcesJson = sourcesRes.data;
-
-                let videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
-                
-                if (sourcesJson.enc && !videoUrl) {
+                for (const srv of availableServers) {
                     try {
-                        const decrypted = decryptEnc(sourcesJson.enc);
-                        videoUrl = decrypted.file || decrypted[0]?.file;
-                        console.log(`[WATCH] Successfully decrypted Megaplay source!`);
-                    } catch (decErr) {
-                        console.error(`[WATCH] Decryption failed:`, decErr.message);
-                    }
-                }
+                        console.log(`[WATCH] Trying Anikoto server "${srv.name}" for slug "${currentSlug}"...`);
+                        const serverRes = await axios.get(`https://anikototv.to/ajax/server?get=${srv.linkId}`, {
+                            headers: { "X-Requested-With": "XMLHttpRequest" }
+                        });
+                        const embedUrl = serverRes.data.result?.url;
+                        if (!embedUrl) continue;
 
-                if (videoUrl) { if (videoUrl.includes("de646eafb46fad3dd363e893401c2db9")) { console.warn("[WATCH] Detected Anikoto bad upload. Skipping to iframe fallback!"); return null; }
-                    console.log(`[WATCH] 🎉 Global Fix Success! Found working playlist via slug: "${currentSlug}"`);
-                    const payload = {
-                       headers: { "Referer": new URL(embedUrl).origin + "/" },
-                       sources: [{ url: videoUrl, isM3U8: true, quality: "default" }]
-                    };
-                    
-                    if (sourcesJson.tracks) {
-                        const engTrack = sourcesJson.tracks.find(t => t.label === "English" && t.kind === "captions");
-                        if (engTrack) {
-                            payload.subtitles = [{ url: engTrack.file, lang: "English" }];
+                        const embedRes = await axios.get(embedUrl, {
+                            headers: { "Referer": "https://anikototv.to/" }
+                        });
+                        
+                        const cidMatch = embedRes.data.match(/cid\s*:\s*\'([^\']+)\'/);
+                        if (!cidMatch) continue;
+                        const cid = cidMatch[1];
+                        
+                        const sourcesUrl = new URL(embedUrl).origin + `/stream/getSources?id=${cid}`;
+                        const sourcesRes = await axios.get(sourcesUrl, {
+                            headers: { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl }
+                        });
+                        const sourcesJson = sourcesRes.data;
+
+                        let videoUrl = sourcesJson.sources?.file || (Array.isArray(sourcesJson.sources) && sourcesJson.sources[0]?.file);
+                        if (sourcesJson.enc && !videoUrl) {
+                            try {
+                                const decrypted = decryptEnc(sourcesJson.enc);
+                                videoUrl = decrypted.file || decrypted[0]?.file;
+                            } catch (decErr) {}
                         }
+
+                        if (!videoUrl) continue;
+
+                        const isBadUpload = BAD_VIDEO_HASHES.some(badHash => videoUrl.includes(badHash));
+                        if (isBadUpload) {
+                            console.warn(`[WATCH] Anikoto server "${srv.name}" returned corrupted/mismatched video hash! Skipping to next server...`);
+                            continue;
+                        }
+
+                        console.log(`[WATCH] 🎉 Anikoto Success! Found valid stream on server "${srv.name}" via slug: "${currentSlug}"`);
+                        const payload = {
+                           headers: { "Referer": new URL(embedUrl).origin + "/" },
+                           sources: [{ url: videoUrl, isM3U8: true, quality: "default" }]
+                        };
+                        
+                        if (sourcesJson.tracks) {
+                            const engTrack = sourcesJson.tracks.find(t => t.label === "English" && t.kind === "captions");
+                            if (engTrack) {
+                                payload.subtitles = [{ url: engTrack.file, lang: "English" }];
+                            }
+                        }
+                        return payload;
+                    } catch (srvErr) {
+                        console.warn(`[WATCH] Anikoto server "${srv.name}" failed: ${srvErr.message}`);
                     }
-                    return payload;
                 }
             } catch (innerError) {
                 console.error(`[WATCH] Error processing candidate slug "${currentSlug}":`, innerError.message);

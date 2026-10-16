@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import axios from 'axios';
 
+const CF_WORKER = 'https://kurotv-proxy.felixnjuguna31.workers.dev';
+
+function proxyUrl(targetUrl, referer = 'https://reanime.to/') {
+    return `${CF_WORKER}/?url=${encodeURIComponent(targetUrl)}&referer=${encodeURIComponent(referer)}`;
+}
+
 function sha256hex(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
@@ -10,7 +16,9 @@ function rt(b64) {
 }
 
 async function fetchJson(url, headers = {}) {
-  const r = await fetch(url, {
+  const referer = headers.Referer || 'https://reanime.to/';
+  const target = proxyUrl(url, referer);
+  const r = await fetch(target, {
     headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", ...headers },
   });
   if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
@@ -75,7 +83,8 @@ function extractSsrObj(html) {
 }
 
 export async function decryptFlix(embedUrl) {
-    const r = await fetch(embedUrl, {
+    const target = proxyUrl(embedUrl, 'https://reanime.to/');
+    const r = await fetch(target, {
         headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://reanime.to/"
@@ -124,15 +133,16 @@ export async function decryptFlix(embedUrl) {
 
 export async function extractFromReAnime(anilistId, epNum, lang = 'sub', malId = null) {
     try {
-        let url = `https://reanime.to/api/flix/${anilistId}/${epNum}`;
-        if (malId) url += `?mal=${malId}`;
+        let rawUrl = `https://reanime.to/api/flix/${anilistId}/${epNum}`;
+        if (malId) rawUrl += `?mal=${malId}`;
         
-        const res = await axios.get(url, {
+        const target = proxyUrl(rawUrl, 'https://reanime.to/');
+        const res = await axios.get(target, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://reanime.to/'
             },
-            timeout: 8000
+            timeout: 10000
         });
         
         if (!res.data?.success || !res.data?.servers?.length) {
