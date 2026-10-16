@@ -460,6 +460,15 @@ app.get('/anime/zoro/episodes/:id', async (req, res) => {
   res.json({ episodes: finalEps });
 });
 
+app.get('/debug/reanime/:id/:ep', async (req, res) => {
+    try {
+        const re = await extractFromReAnime(req.params.id, req.params.ep, 'sub');
+        return res.json({ success: true, re });
+    } catch (e) {
+        return res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
 // ==========================================
 // 🛡️ DYNAMIC SSL PROXY ROUTES (NUCLEAR REWRITE PIPELINE)
 // ==========================================
