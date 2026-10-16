@@ -378,6 +378,9 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
 
     const payloadObj = {
       id: anime.id?.toString() || id, idMal: anime.idMal || null, title: anime.title?.english || anime.title?.romaji || 'Series',
+      titleEng: anime.title?.english || null,
+      titleRomaji: anime.title?.romaji || null,
+      seasonYear: anime.startDate?.year || anime.seasonYear || null,
       image: anime.coverImage?.extraLarge || '', bannerImage: anime.bannerImage || anime.coverImage?.extraLarge || '',
       description: anime.description || 'No synopsis available.', genres: anime.genres || [], rating: anime.averageScore || 0,
       status: anime.status || 'UNKNOWN', totalEpisodes: anime.episodes || 0, type: anime.type || 'TV',
@@ -402,6 +405,9 @@ app.get('/anime/zoro/info/:id', async (req, res) => {
                 id: id.toString(),
                 idMal: fallbackData.mal_id || null,
                 title: fallbackData.titles.en || fallbackData.titles.ro || fallbackData.titles.ja || 'Unknown Series',
+                titleEng: fallbackData.titles.en || null,
+                titleRomaji: fallbackData.titles.ro || null,
+                seasonYear: fallbackData.year || null,
                 image: fallbackData.image || '',
                 bannerImage: fallbackData.image || '',
                 description: 'Anilist API is currently down. Showing fallback data.',
@@ -737,7 +743,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
   // Make sure to add the server to the cache key so they don't overwrite each other!
   // 🔥 BUST CACHE AGAIN to clear out any stale mismatched links
-  const cacheKey = `watch_v13-${episodeId}-${lang}-${targetProviderKey}`;
+  const cacheKey = `watch_v14-${episodeId}-${lang}-${targetProviderKey}`;
   if (getCache(cacheKey)) { return res.json(getCache(cacheKey)); }
 
   const protocol = req.headers['x-forwarded-proto'] || (req.hostname === 'localhost' || req.hostname === '127.0.0.1' ? 'http' : 'https');
@@ -778,38 +784,43 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
   }
   epNum = epNum || "1";
 
-  const extractAnikotoStream = async (anilistId, epNum, requestedLang, malId = null) => {
+  const extractAnikotoStream = async (anilistId, epNum, requestedLang, malId = null, preResolvedMeta = null) => {
     if ([11061, 196187, 199068, 185874].includes(parseInt(anilistId, 10))) {
         console.warn(`[WATCH] Skipping Anikoto for HxH (11061) / Smoking Behind Supermarket (196187) due to misuploads/honeypots. Forcing iframe fallback.`);
         return null;
     }
     
-    let titleEng = null;
-    let titleRomaji = null;
-    let format = "TV";
-    let episodes = 0;
-    let nextAiring = null;
+    let titleEng = preResolvedMeta?.titleEng || null;
+    let titleRomaji = preResolvedMeta?.titleRomaji || null;
+    let format = preResolvedMeta?.format || "TV";
+    let episodes = preResolvedMeta?.episodes || 0;
+    let nextAiring = preResolvedMeta?.nextAiringEpisode || null;
+    let seasonYear = preResolvedMeta?.seasonYear || null;
     
     // 🛡️ NUCLEAR METADATA FALLBACK SYSTEM
-    // First, try the memory cache from the info route
-    const cachedInfo = getCache(`info-${anilistId}`);
-    if (cachedInfo) {
-        titleEng = cachedInfo.title;
-        format = cachedInfo.type;
-        episodes = cachedInfo.totalEpisodes;
-        nextAiring = cachedInfo.nextAiringEpisode;
-    } else {
-        try {
-            console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
-            const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
-            const r = await fetchWithBackoff("https://graphql.anilist.co", { method: 'POST', headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } }) });
-            const anilistData = await r.json();
-            titleEng = anilistData?.data?.Media?.title?.english;
-            titleRomaji = anilistData?.data?.Media?.title?.romaji;
-            format = anilistData?.data?.Media?.format || "TV";
-            episodes = anilistData?.data?.Media?.episodes || 0;
-            nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
-        } catch (err) {
+    if (!titleEng && !titleRomaji) {
+        // First, try the memory cache from the info route
+        const cachedInfo = getCache(`info-${anilistId}`);
+        if (cachedInfo) {
+            titleEng = cachedInfo.titleEng || cachedInfo.title;
+            titleRomaji = cachedInfo.titleRomaji || cachedInfo.title;
+            format = cachedInfo.type;
+            episodes = cachedInfo.totalEpisodes;
+            nextAiring = cachedInfo.nextAiringEpisode;
+            seasonYear = cachedInfo.seasonYear || (cachedInfo.releaseDate ? parseInt(cachedInfo.releaseDate.split('-')[0], 10) : null);
+        } else {
+            try {
+                console.log(`[WATCH] Fetching AniList metadata for ID: ${anilistId}...`);
+                const query = `query ($id: Int) { Media (id: $id) { title { romaji english native } format seasonYear startDate { year } status episodes nextAiringEpisode { airingAt timeUntilAiring episode } } }`;
+                const r = await fetchWithBackoff("https://graphql.anilist.co", { method: 'POST', headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ query, variables: { id: parseInt(anilistId, 10) } }) });
+                const anilistData = await r.json();
+                titleEng = anilistData?.data?.Media?.title?.english;
+                titleRomaji = anilistData?.data?.Media?.title?.romaji;
+                format = anilistData?.data?.Media?.format || "TV";
+                episodes = anilistData?.data?.Media?.episodes || 0;
+                nextAiring = anilistData?.data?.Media?.nextAiringEpisode;
+                seasonYear = anilistData?.data?.Media?.seasonYear || anilistData?.data?.Media?.startDate?.year || null;
+            } catch (err) {
             console.warn(`[WATCH] AniList failed during Anikoto extraction, falling back to AniZip...`);
             try {
                 const fallbackReq = await fetch(`https://api.ani.zip/mappings?anilist_id=${anilistId}`);
@@ -830,6 +841,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
                 } catch(e) {}
             }
         }
+    }
     }
     
     const title = titleEng || titleRomaji;
@@ -1166,12 +1178,49 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
 
 };
 
+    // 🛡️ Resolve metadata for extractors to guarantee 0ms latency and immune to AniList 429 limits
+    let metaForExtract = null;
+    const cachedInfo = getCache(`info-${requestedAnimeId}`);
+    if (cachedInfo) {
+        metaForExtract = {
+            titleEng: cachedInfo.titleEng || cachedInfo.title,
+            titleRomaji: cachedInfo.titleRomaji || cachedInfo.title,
+            format: cachedInfo.type || "TV",
+            seasonYear: cachedInfo.seasonYear || (cachedInfo.releaseDate ? parseInt(cachedInfo.releaseDate.split('-')[0], 10) : null),
+            episodes: cachedInfo.totalEpisodes,
+            nextAiringEpisode: cachedInfo.nextAiringEpisode
+        };
+    } else {
+        try {
+            console.log(`[WATCH] Pre-fetching AniList metadata for ID: ${requestedAnimeId}...`);
+            const query = `query ($id: Int) { Media (id: $id) { title { romaji english } format seasonYear startDate { year } episodes nextAiringEpisode { airingAt episode } } }`;
+            const r = await fetchWithBackoff("https://graphql.anilist.co", {
+                method: 'POST',
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body: JSON.stringify({ query, variables: { id: parseInt(requestedAnimeId, 10) } })
+            });
+            const d = await r.json();
+            const media = d?.data?.Media;
+            if (media) {
+                metaForExtract = {
+                    titleEng: media.title?.english,
+                    titleRomaji: media.title?.romaji,
+                    format: media.format || "TV",
+                    seasonYear: media.seasonYear || media.startDate?.year || null,
+                    episodes: media.episodes || 0,
+                    nextAiringEpisode: media.nextAiringEpisode
+                };
+            }
+        } catch (e) {
+            console.warn(`[WATCH] Pre-fetch AniList metadata failed for ID ${requestedAnimeId}:`, e.message);
+        }
+    }
 
     if (requestedServer === 'Vidstreaming' || requestedServer === 'MegaCloud') {
         // 🚀 TIER 1: Try AniZone (Authentic HD HLS streams, dual-audio, zero mismatches, verified unpoisoned!)
         try {
             console.log(`[WATCH] Attempting Tier 1 native AniZone stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
-            const azPayload = await extractFromAniZone(requestedAnimeId, epNum, lang, req.query.malId);
+            const azPayload = await extractFromAniZone(requestedAnimeId, epNum, lang, req.query.malId, metaForExtract);
             if (azPayload) {
                 if (azPayload.notAired) return res.json(azPayload);
                 if (azPayload.sources && azPayload.sources.length > 0 && azPayload.sources[0].url) {
@@ -1233,7 +1282,7 @@ app.get('/anime/zoro/watch/:episodeId', async (req, res) => {
         // 🛡️ TIER 3: Fall back to Anikoto (Megaplay CDN)
         try {
            console.log(`[WATCH] Attempting Tier 3 Anikoto stream extraction for AniList ID ${requestedAnimeId} Ep ${epNum}...`);
-           const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang, req.query.malId);
+           const payload = await extractAnikotoStream(requestedAnimeId, epNum, lang, req.query.malId, metaForExtract);
            if (payload) {
              if (payload.notAired) return res.json(payload);
              const proxyWrapped = {

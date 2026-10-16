@@ -150,36 +150,49 @@ export function scoreAniZoneCandidate(candidate, anilistMeta) {
     return score;
 }
 
-export async function extractFromAniZone(anilistId, epNum, requestedLang = 'sub', fallbackMalId = null) {
-    let titleEng = null;
-    let titleRomaji = null;
-    let format = 'TV';
-    let seasonYear = null;
-    let episodes = null;
+export async function extractFromAniZone(anilistId, epNum, requestedLang = 'sub', fallbackMalId = null, preResolvedMeta = null) {
+    let titleEng = preResolvedMeta?.titleEng || null;
+    let titleRomaji = preResolvedMeta?.titleRomaji || null;
+    let format = preResolvedMeta?.format || 'TV';
+    let seasonYear = preResolvedMeta?.seasonYear || null;
+    let episodes = preResolvedMeta?.episodes || null;
 
-    // 1. Fetch metadata from AniList GraphQL
-    try {
-        const query = `query ($id: Int) { Media (id: $id) { id title { romaji english } format seasonYear startDate { year } episodes nextAiringEpisode { episode airingAt } } }`;
-        const res = await axios.post('https://graphql.anilist.co', {
-            query,
-            variables: { id: parseInt(anilistId, 10) }
-        }, { timeout: 6000 });
-        const media = res.data?.data?.Media;
-        if (media) {
-            titleEng = media.title?.english;
-            titleRomaji = media.title?.romaji;
-            format = media.format || 'TV';
-            seasonYear = media.seasonYear || media.startDate?.year || null;
-            episodes = media.episodes || null;
-
-            const requestedEpNum = parseInt(epNum, 10);
-            if (media.nextAiringEpisode && requestedEpNum >= media.nextAiringEpisode.episode) {
-                console.log(`[ANIZONE] Episode ${requestedEpNum} of ${titleEng || titleRomaji} hasn't aired yet.`);
-                return { error: 'PREMIERE_AWAITING', airingAt: media.nextAiringEpisode.airingAt, episode: requestedEpNum, notAired: true };
-            }
+    if (preResolvedMeta?.nextAiringEpisode) {
+        const requestedEpNum = parseInt(epNum, 10);
+        if (requestedEpNum >= preResolvedMeta.nextAiringEpisode.episode) {
+            console.log(`[ANIZONE] Episode ${requestedEpNum} of ${titleEng || titleRomaji} hasn't aired yet.`);
+            return { error: 'PREMIERE_AWAITING', airingAt: preResolvedMeta.nextAiringEpisode.airingAt, episode: requestedEpNum, notAired: true };
         }
-    } catch (e) {
-        console.warn(`[ANIZONE] AniList metadata fetch failed for ID ${anilistId}:`, e.message);
+    }
+
+    // 1. Fetch metadata from AniList GraphQL if not pre-resolved
+    if (!titleEng && !titleRomaji) {
+        try {
+            const query = `query ($id: Int) { Media (id: $id) { id title { romaji english } format seasonYear startDate { year } episodes nextAiringEpisode { episode airingAt } } }`;
+            const res = await axios.post('https://graphql.anilist.co', {
+                query,
+                variables: { id: parseInt(anilistId, 10) }
+            }, {
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': UA },
+                timeout: 6000
+            });
+            const media = res.data?.data?.Media;
+            if (media) {
+                titleEng = media.title?.english;
+                titleRomaji = media.title?.romaji;
+                format = media.format || 'TV';
+                seasonYear = media.seasonYear || media.startDate?.year || null;
+                episodes = media.episodes || null;
+
+                const requestedEpNum = parseInt(epNum, 10);
+                if (media.nextAiringEpisode && requestedEpNum >= media.nextAiringEpisode.episode) {
+                    console.log(`[ANIZONE] Episode ${requestedEpNum} of ${titleEng || titleRomaji} hasn't aired yet.`);
+                    return { error: 'PREMIERE_AWAITING', airingAt: media.nextAiringEpisode.airingAt, episode: requestedEpNum, notAired: true };
+                }
+            }
+        } catch (e) {
+            console.warn(`[ANIZONE] AniList metadata fetch failed for ID ${anilistId}:`, e.message);
+        }
     }
 
     // 2. AniZip Fallback if metadata is missing
@@ -189,6 +202,18 @@ export async function extractFromAniZone(anilistId, epNum, requestedLang = 'sub'
             titleEng = azRes.data?.titles?.en || null;
             titleRomaji = azRes.data?.titles?.ro || null;
             episodes = azRes.data?.episodeCount || episodes;
+            if (azRes.data?.year) seasonYear = azRes.data.year;
+        } catch {}
+    }
+
+    // 3. Jikan Fallback if still missing and fallbackMalId is present
+    if (!titleEng && !titleRomaji && fallbackMalId) {
+        try {
+            const jRes = await axios.get(`https://api.jikan.moe/v4/anime/${fallbackMalId}`, { timeout: 5000 });
+            titleEng = jRes.data?.data?.title_english || jRes.data?.data?.title || null;
+            titleRomaji = jRes.data?.data?.title || null;
+            seasonYear = jRes.data?.data?.year || seasonYear;
+            episodes = jRes.data?.data?.episodes || episodes;
         } catch {}
     }
 
